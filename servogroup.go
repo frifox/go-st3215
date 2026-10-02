@@ -97,6 +97,12 @@ func (g *Group) SetTorqueLimit(percent float64) error {
 	return g.syncValue(RegTorqueLimit, func(uint8) int { return v })
 }
 
+// SetMultiTurn switches multi-turn mode (angle limits 0/0) on or off for every
+// member. Persisted.
+func (g *Group) SetMultiTurn(on bool) error {
+	return g.each(func(s *Servo) error { return s.SetMultiTurn(on) })
+}
+
 // syncValue writes one SRAM register on every member with a single packet.
 func (g *Group) syncValue(r Register, value func(id uint8) int) error {
 	entries := make([]SyncWriteEntry, len(g.ids))

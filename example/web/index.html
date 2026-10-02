@@ -462,7 +462,7 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
-          <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Multi-turn (angle limits 0/0)</span></label>
+          <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
         </div>
         <hr class="sep">
         <div class="row">
@@ -509,12 +509,17 @@ td .num { width: 90px; padding: 3px 6px; }
         </div>
         <p class="hint">Spread is the largest difference between the members' positions. Members "fight" when one pushes one way and another pushes back, which strains a shared axis. Turning torque off releases the whole group, so make sure the load can't fall.</p>
         <hr class="sep">
+        <div class="row" style="margin-top:0">
+          <label class="switch"><input type="checkbox" id="gMultiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
+        </div>
+        <p class="hint" id="gMultiturnHint">Applies to every member.</p>
+        <hr class="sep">
         <div class="row">
           <button class="btn" id="gAlign" title="Move every member slowly to the leader's position">Align to leader</button>
           <button class="btn" id="gAutoTune" title="Tune the whole group together by test moves">Auto-tune group…</button>
           <button class="btn" id="gCopyTuning" title="Copy PID, dead zones and protection from the leader to the other members (saved)">Copy tuning from leader</button>
         </div>
-        <p class="hint">Align before turning Torque Lock on if the members were moved by hand. For members that should agree exactly, set the same center pose on each first (servo → Setup → Set current position as center).</p>
+        <p class="hint">Align before turning Torque Lock on if the members were moved by hand. For members that should agree exactly, set the same center pose on each first (servo → Setup → Calibrate Up/0° to → Current position).</p>
       </div>
     </section>
 
@@ -1203,7 +1208,7 @@ function isMultiTurn(c) { return c.minAngleLimit === 0 && c.maxAngleLimit === 0;
 function onConfig(m) {
   const c = m.config;
   state.cfg[m.id] = c;
-  if (members().includes(m.id)) updateTorqueBox();
+  if (members().includes(m.id)) { updateTorqueBox(); updateGroupMultiTurn(); }
   if (m.id !== state.selected) return;
   $("selInfo").textContent = `servo v${c.servoMajor}.${c.servoMinor} · fw ${c.firmwareMajor}.${c.firmwareMinor} · ${c.baudRate === 0 ? "1 Mbps" : "baud idx " + c.baudRate}`;
   $("multiturn").checked = isMultiTurn(c);
@@ -1353,7 +1358,7 @@ async function moveAngle(degrees, quiet) {
   const id = state.selected, cur = state.fb[id]?.position, steps = stepsFromVdeg(id, degrees);
   if (cur !== undefined && !multiTurnOf(id) && Math.abs(steps - cur) > STEPS / 2 && !seamHinted) {
     seamHinted = true;
-    log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Multi-turn in Setup to always take the shortest way.");
+    log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Enable multi-turn (Setup, or Group health for a group) to always take the shortest way.");
   }
   const res = await ctl("angle", { degrees, ...motion() });
   if (res && res.goal !== undefined) {
@@ -1438,6 +1443,22 @@ $("mirrored").onchange = async (e) => {
     state.hist[state.selected] = []; // history switches coordinates
     loadConfig(true);
   } else e.target.checked = !e.target.checked;
+};
+// The group switch is on when every member is in multi-turn mode; mixed
+// members show it unchecked with a note.
+function updateGroupMultiTurn() {
+  const g = curGroup();
+  if (!g) return;
+  const known = g.members.filter((id) => state.cfg[id]);
+  const on = known.filter((id) => multiTurnOf(id));
+  $("gMultiturn").checked = known.length > 0 && on.length === known.length;
+  $("gMultiturnHint").textContent = on.length && on.length < known.length
+    ? `Applies to every member. Now mixed: on for #${on.join(", #")} only.`
+    : "Applies to every member.";
+}
+$("gMultiturn").onchange = async (e) => {
+  if (await ctl("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
+  else updateGroupMultiTurn();
 };
 $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);

@@ -162,6 +162,8 @@ func (s *server) groupCommand(bus *st3215.Bus, req request) error {
 		return g.SetMode(st3215.Mode(req.Mode))
 	case "torqueLimit":
 		return g.SetTorqueLimit(req.Percent)
+	case "multiturn":
+		return g.SetMultiTurn(req.On)
 	case "align":
 		return g.Align(req.Speed, req.Acc)
 	case "copyTuning":

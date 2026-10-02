@@ -2,9 +2,10 @@
 # Edited by the web UI; changes made here are read on startup.
 
 [1]
-Name = "Right Servo"
+Mirrored = true
 Signed = true
 Zero = 270.0
 
-[2]
-Name = "Left Servo"
+[group.group]
+Name = "Group"
+Members = [1, 2, 3]
