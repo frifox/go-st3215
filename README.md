@@ -40,6 +40,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Multi-turn | `SetMultiTurn(true)` → goal range ±30719 steps (±7.5 turns) |
 | Other modes | `SetMode(ModeWheel/ModePWM/ModeStep)`, `SetWheelSpeed`, `SetPWM` |
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
+| Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |
 | Monitoring | `Feedback` (position, speed, load, voltage, temperature, current, moving, status in one read), plus single getters |
 | Torque | `EnableTorque`, `SetTorqueLimit` (runtime), `SetMaxTorque` (persisted) |
 | Calibration | `CalibrateMiddle` (current position becomes 2048), `SetPositionOffset` |
@@ -49,6 +50,31 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 
 EEPROM writes are wrapped in unlock → write → lock automatically so they survive power cycles.
 The `Bus` is safe for concurrent use.
+
+## Mirrored servos
+
+When two servos drive one axis from opposite sides (facing each other), the same command turns
+them in opposite directions. Mark one as mirrored and use the same logical values for both:
+
+```go
+bus.SetMirrored(2, true) // or st3215.Open(dev, baud, st3215.WithMirrored(2))
+
+bus.SyncMove(
+    st3215.Target{ID: 1, Position: 1500, Speed: 1000, Acc: 30},
+    st3215.Target{ID: 2, Position: 1500, Speed: 1000, Acc: 30}, // physically 4096-1500
+)
+```
+
+For a mirrored servo every typed call works in logical coordinates: positions are reflected
+about 2048 (`4096 - p`), and speed, load, current, wheel speed, PWM duty and `StepBy` steps
+change sign. Angle limits are reflected, and `ReadConfig`, `Feedback`, `SyncFeedback` and
+`WaitForPosition` report logical values. Raw register access (`Servo.Read/Write`,
+`Bus.Read/Write/SyncRead/SyncWrite`) and `PositionOffset` stay physical.
+
+Calibrate both servos so 2048 is the same mechanical pose (`CalibrateMiddle` in that pose, or
+`SetPositionOffset`), otherwise they track with a constant offset. The flag is kept on the
+`Bus` by ID (it follows `SetID`) and is not stored on the servo, so set it each time your
+program starts.
 
 ## Demo: web console
 

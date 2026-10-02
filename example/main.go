@@ -54,7 +54,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv := &server{clients: map[*client]struct{}{}, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
+	srv := &server{clients: map[*client]struct{}{}, mirrored: map[uint8]bool{}, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
 	if *sim != "" {
 		ids, err := parseIDs(*sim)
 		if err != nil {
@@ -120,6 +120,7 @@ type server struct {
 	scanned    bool    // a scan has completed on this connection
 	scanning   bool
 	scanCancel context.CancelFunc
+	mirrored   map[uint8]bool // IDs set as mirrored; reapplied on reconnect
 	clients    map[*client]struct{}
 }
 
@@ -147,8 +148,13 @@ func (s *server) broadcast(msg any) {
 func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	mirrored := []int{}
+	for id := range s.mirrored {
+		mirrored = append(mirrored, int(id))
+	}
+	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
-		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids)}
+		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -264,6 +270,11 @@ func (s *server) connect(port string, baud int) error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	for id := range s.mirrored {
+		bus.SetMirrored(id, true)
+	}
+	s.mu.Unlock()
 	s.busMu.Lock()
 	s.bus = bus
 	s.busMu.Unlock()
@@ -407,6 +418,7 @@ type stateMsg struct {
 	Scanning  bool   `json:"scanning"`
 	Scanned   bool   `json:"scanned"`
 	IDs       []int  `json:"ids"` // not []uint8: encoding/json would emit base64
+	Mirrored  []int  `json:"mirrored"`
 }
 
 type portsMsg struct {
@@ -607,6 +619,17 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetPWM(req.Duty)
 	case "mode":
 		return sv.SetMode(st3215.Mode(req.Mode))
+	case "mirror":
+		bus.SetMirrored(req.ID, req.On)
+		s.mu.Lock()
+		if req.On {
+			s.mirrored[req.ID] = true
+		} else {
+			delete(s.mirrored, req.ID)
+		}
+		s.mu.Unlock()
+		s.broadcastState()
+		return nil
 	case "multiturn":
 		return sv.SetMultiTurn(req.On)
 	case "torqueLimit":
@@ -621,6 +644,10 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			return err
 		}
 		s.mu.Lock()
+		if s.mirrored[req.ID] { // the bus moved the flag to the new ID too
+			delete(s.mirrored, req.ID)
+			s.mirrored[req.NewID] = true
+		}
 		s.ids = slices.DeleteFunc(s.ids, func(id uint8) bool { return id == req.ID })
 		s.ids = append(s.ids, req.NewID)
 		slices.Sort(s.ids)

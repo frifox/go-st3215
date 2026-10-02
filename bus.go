@@ -30,6 +30,9 @@ type Bus struct {
 	onStatus func(id uint8, s Status)
 	rx       []byte
 	tmp      []byte
+
+	cfgMu  sync.RWMutex
+	mirror map[uint8]bool // IDs of mirrored servos, see mirror.go
 }
 
 // Option configures a Bus.

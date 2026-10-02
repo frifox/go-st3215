@@ -11,11 +11,12 @@ type Target struct {
 }
 
 // SyncMove starts all targets at the same instant with one SYNC WRITE packet.
+// Positions are logical (see Bus.SetMirrored).
 // No acknowledgement is returned by the servos.
 func (b *Bus) SyncMove(targets ...Target) error {
 	entries := make([]SyncWriteEntry, len(targets))
 	for i, t := range targets {
-		data, err := moveData(t.Position, t.Speed, t.Acc)
+		data, err := moveData(mirrorPos(b.Mirrored(t.ID), t.Position), t.Speed, t.Acc)
 		if err != nil {
 			return fmt.Errorf("servo %d: %w", t.ID, err)
 		}
@@ -55,7 +56,7 @@ func (b *Bus) SyncFeedback(ids ...uint8) (map[uint8]FeedbackResult, error) {
 			out[id] = FeedbackResult{Err: r.Err}
 			continue
 		}
-		out[id] = FeedbackResult{Feedback: decodeFeedback(r.Data)}
+		out[id] = FeedbackResult{Feedback: decodeFeedback(r.Data).mirrored(b.Mirrored(id))}
 	}
 	return out, nil
 }

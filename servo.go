@@ -161,19 +161,25 @@ func (s *Servo) Feedback() (Feedback, error) {
 	if err != nil {
 		return Feedback{}, err
 	}
-	return decodeFeedback(b), nil
+	return decodeFeedback(b).mirrored(s.Mirrored()), nil
 }
 
 // Position returns the present position in steps.
-func (s *Servo) Position() (int, error) { return s.Read(RegPresentPosition) }
+func (s *Servo) Position() (int, error) {
+	v, err := s.Read(RegPresentPosition)
+	return mirrorPos(s.Mirrored(), v), err
+}
 
 // Speed returns the present speed in step/s.
-func (s *Servo) Speed() (int, error) { return s.Read(RegPresentSpeed) }
+func (s *Servo) Speed() (int, error) {
+	v, err := s.Read(RegPresentSpeed)
+	return mirrorSign(s.Mirrored(), v), err
+}
 
 // Load returns the present load in % (-100..100).
 func (s *Servo) Load() (float64, error) {
 	v, err := s.Read(RegPresentLoad)
-	return float64(v) / 10, err
+	return mirrorSign(s.Mirrored(), float64(v)/10), err
 }
 
 // Voltage returns the supply voltage in volts.
@@ -188,7 +194,7 @@ func (s *Servo) Temperature() (int, error) { return s.Read(RegPresentTemperature
 // Current returns the motor current in mA.
 func (s *Servo) Current() (float64, error) {
 	v, err := s.Read(RegPresentCurrent)
-	return float64(v) * CurrentPerUnitMA, err
+	return mirrorSign(s.Mirrored(), float64(v)*CurrentPerUnitMA), err
 }
 
 // Moving reports whether the servo is currently moving.
@@ -265,13 +271,14 @@ type Config struct {
 func (c Config) MultiTurn() bool { return c.MinAngleLimit == 0 && c.MaxAngleLimit == 0 }
 
 // ReadConfig reads the whole memory table and decodes the configuration.
+// For a mirrored servo the goal and angle limits are in logical coordinates.
 func (s *Servo) ReadConfig() (Config, error) {
 	m, err := s.ReadMemory()
 	if err != nil {
 		return Config{}, err
 	}
 	g := func(r Register) int { return r.decode(m[r.Addr:]) }
-	return Config{
+	c := Config{
 		Info: Info{
 			FirmwareMajor: g(RegFirmwareMajor), FirmwareMinor: g(RegFirmwareMinor),
 			ServoMajor: g(RegServoMajor), ServoMinor: g(RegServoMinor),
@@ -312,7 +319,21 @@ func (s *Servo) ReadConfig() (Config, error) {
 		GoalSpeed:         g(RegGoalSpeed),
 		TorqueLimit:       g(RegTorqueLimit),
 		EEPROMLocked:      g(RegLock) != 0,
-	}, nil
+	}
+	if on := s.Mirrored(); on {
+		c.MinAngleLimit, c.MaxAngleLimit = mirrorLimits(on, c.MinAngleLimit, c.MaxAngleLimit)
+		switch c.Mode {
+		case ModePosition:
+			c.GoalPosition = mirrorPos(on, c.GoalPosition)
+		case ModeStep:
+			c.GoalPosition = -c.GoalPosition
+		case ModeWheel:
+			c.GoalSpeed = -c.GoalSpeed
+		case ModePWM:
+			c.GoalTime = -c.GoalTime
+		}
+	}
+	return c, nil
 }
 
 // Info reads hardware and firmware versions.
@@ -339,6 +360,10 @@ func (s *Servo) SetID(newID uint8) error {
 	}
 	if _, err := s.bus.Ping(newID); err != nil {
 		return fmt.Errorf("st3215: servo did not answer under new ID %d: %w", newID, err)
+	}
+	if s.Mirrored() {
+		s.bus.SetMirrored(s.id, false)
+		s.bus.SetMirrored(newID, true)
 	}
 	s.id = newID
 	return s.LockEEPROM()
@@ -371,8 +396,19 @@ func (s *Servo) Mode() (Mode, error) {
 	return Mode(v), err
 }
 
-// SetAngleLimits sets the allowed position range in steps (persisted).
+// SetAngleLimits sets the allowed position range in steps (persisted). Both 0
+// selects multi-turn mode. For a mirrored servo the range is logical.
 func (s *Servo) SetAngleLimits(min, max int) error {
+	if min != 0 || max != 0 {
+		if min >= max {
+			return fmt.Errorf("st3215: min angle limit %d must be below max %d", min, max)
+		}
+	}
+	min, max = mirrorLimits(s.Mirrored(), min, max)
+	return s.setAngleLimitsRaw(min, max)
+}
+
+func (s *Servo) setAngleLimitsRaw(min, max int) error {
 	if min != 0 || max != 0 {
 		if min >= max {
 			return fmt.Errorf("st3215: min angle limit %d must be below max %d", min, max)
@@ -399,7 +435,8 @@ func (s *Servo) AngleLimits() (min, max int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	return int(getU16(b)), int(getU16(b[2:])), nil
+	min, max = mirrorLimits(s.Mirrored(), int(getU16(b)), int(getU16(b[2:])))
+	return min, max, nil
 }
 
 // SetMultiTurn enables multi-turn absolute positioning (angle limits 0/0,
@@ -407,9 +444,9 @@ func (s *Servo) AngleLimits() (min, max int, err error) {
 // The turn count is not saved across power cycles.
 func (s *Servo) SetMultiTurn(on bool) error {
 	if on {
-		return s.SetAngleLimits(0, 0)
+		return s.setAngleLimitsRaw(0, 0)
 	}
-	return s.SetAngleLimits(0, StepsPerRev-1)
+	return s.setAngleLimitsRaw(0, StepsPerRev-1)
 }
 
 // SetPositionOffset sets the position correction in steps (-2047..2047, persisted).
@@ -512,10 +549,10 @@ func moveData(pos, speed int, acc uint8) ([]byte, error) {
 }
 
 // MoveTo commands an absolute position (steps) with a speed in step/s
-// (0 = maximum) and acceleration in 100 step/s² (0 = maximum). In ModeStep
-// the position is relative. It returns as soon as the command is accepted.
+// (0 = maximum) and acceleration in 100 step/s² (0 = maximum). It returns as
+// soon as the command is accepted. In ModeStep use StepBy instead.
 func (s *Servo) MoveTo(pos, speed int, acc uint8) error {
-	data, err := moveData(pos, speed, acc)
+	data, err := moveData(mirrorPos(s.Mirrored(), pos), speed, acc)
 	if err != nil {
 		return err
 	}
@@ -531,7 +568,7 @@ func (s *Servo) MoveToDegrees(deg float64, speed int, acc uint8) error {
 // RegMoveTo stages a MoveTo that executes on the next Bus.Action, so several
 // servos can start at exactly the same time.
 func (s *Servo) RegMoveTo(pos, speed int, acc uint8) error {
-	data, err := moveData(pos, speed, acc)
+	data, err := moveData(mirrorPos(s.Mirrored(), pos), speed, acc)
 	if err != nil {
 		return err
 	}
@@ -539,10 +576,20 @@ func (s *Servo) RegMoveTo(pos, speed int, acc uint8) error {
 	return err
 }
 
+// StepBy moves a relative number of steps in ModeStep (sign = direction).
+func (s *Servo) StepBy(steps, speed int, acc uint8) error {
+	data, err := moveData(mirrorSign(s.Mirrored(), steps), speed, acc)
+	if err != nil {
+		return err
+	}
+	_, err = s.bus.Write(s.id, RegAcceleration.Addr, data)
+	return err
+}
+
 // Stop holds the servo at its present position (ModePosition). In ModeWheel
 // use SetWheelSpeed(0, acc); in ModePWM use SetPWM(0).
 func (s *Servo) Stop() error {
-	pos, err := s.Position()
+	pos, err := s.Read(RegPresentPosition) // physical: written back unchanged
 	if err != nil {
 		return err
 	}
@@ -553,7 +600,7 @@ func (s *Servo) Stop() error {
 // SetWheelSpeed sets the rotation speed in ModeWheel (step/s, sign = direction,
 // 0 = stop) with an acceleration in 100 step/s².
 func (s *Servo) SetWheelSpeed(speed int, acc uint8) error {
-	sp, err := RegGoalSpeed.encode(speed)
+	sp, err := RegGoalSpeed.encode(mirrorSign(s.Mirrored(), speed))
 	if err != nil {
 		return err
 	}
@@ -565,7 +612,7 @@ func (s *Servo) SetWheelSpeed(speed int, acc uint8) error {
 }
 
 // SetPWM sets the open-loop duty in ModePWM, -1000..1000 (0.1%, sign = direction).
-func (s *Servo) SetPWM(duty int) error { return s.Write(RegGoalTime, duty) }
+func (s *Servo) SetPWM(duty int) error { return s.Write(RegGoalTime, mirrorSign(s.Mirrored(), duty)) }
 
 func mustEncode(r Register, v int) []byte {
 	b, err := r.encode(v)

@@ -67,6 +67,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 }
 .servo-item.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
 .servo-item .row1 { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.servo-item .row1[data-mirrored="1"]::after { content: "mirrored"; margin-left: auto; font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
 .servo-item .row2 { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 /* main grid */
@@ -344,6 +345,11 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
+          <label class="switch"><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored (reverse direction)</span></label>
+        </div>
+        <p class="hint">For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo.</p>
+        <hr class="sep">
+        <div class="row">
           <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Multi-turn (angle limits 0/0)</span></label>
         </div>
         <hr class="sep">
@@ -485,6 +491,7 @@ function selectServo(id) {
   document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "item-" + id));
   $("selId").textContent = id;
   $("newId").value = "";
+  $("mirrored").checked = !!state.mirrored?.has(id);
   $("main").hidden = false;
   loadConfig(true);
 }
@@ -771,6 +778,12 @@ $("pwmBtn").onclick = () => cmd("pwm", { duty: Number($("pwm").value) }, `pwm ${
 $("pwmStop").onclick = () => { setPair("pwm", 0); cmd("pwm", { duty: 0 }, "pwm stop"); };
 $("stepBtn").onclick = () => cmd("move", { position: Number($("stepRel").value), ...motion() }, `step ${$("stepRel").value}`);
 
+$("mirrored").onchange = async (e) => {
+  if (await cmd("mirror", { on: e.target.checked }, `servo ${state.selected} mirrored ${e.target.checked ? "on" : "off"}`)) {
+    state.hist[state.selected] = []; // history switches coordinates
+    loadConfig(true);
+  } else e.target.checked = !e.target.checked;
+};
 $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
 };
@@ -799,6 +812,12 @@ function onState(m) {
   if (!m.connected) state.wantScan = false;
   if (!m.scanning) $("scanBar").style.width = m.scanned ? "100%" : "0";
   setServos(m.ids);
+  state.mirrored = new Set(m.mirrored || []);
+  $("mirrored").checked = state.mirrored.has(state.selected);
+  for (const id of state.ids) {
+    const el = $("item-" + id);
+    if (el) el.querySelector(".row1").dataset.mirrored = state.mirrored.has(id) ? "1" : "";
+  }
   renderView();
 }
 
