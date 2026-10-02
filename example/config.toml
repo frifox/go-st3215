@@ -9,5 +9,7 @@ Mirrored = true
 Name = "Left"
 
 [group.rig]
-Name = "Rig"
+Name = "Group"
 Members = [1, 2]
+MaxSpread = 20
+MaxFightLoad = 30.0

@@ -72,6 +72,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 .sel-title { text-transform: none; letter-spacing: 0; color: var(--text); font-size: 13px; font-weight: 650; }
 .icon-btn { border: 0; background: transparent; color: var(--muted); padding: 2px; border-radius: 6px; cursor: pointer; display: inline-grid; place-items: center; }
 .icon-btn:hover { color: var(--accent); background: var(--accent-weak); }
+.icon-btn.danger-icon:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
 .name-edit { text-transform: none; letter-spacing: 0; font: 600 13px system-ui, sans-serif; width: 170px; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 6px; background: var(--panel-2); color: var(--text); }
 .servo-item .row2 { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
@@ -328,6 +329,9 @@ td .num { width: 90px; padding: 3px 6px; }
         <button class="icon-btn" id="editGroupBtn" title="Edit group" aria-label="Edit group" hidden>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.1 1.9a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
         </button>
+        <button class="icon-btn danger-icon" id="deleteGroupBtn" title="Delete group" aria-label="Delete group" hidden>
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.7 6.5v4.5M9.3 6.5v4.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <label class="switch head-switch" title="For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo."><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored</span></label>
         <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
       <div class="card-body overview">
@@ -555,7 +559,6 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
       <div class="err" id="gErr"></div>
       <div class="row" style="margin-top:16px">
-        <button class="btn danger" id="gDelete" hidden>Delete group</button>
         <span class="spacer"></span>
         <button class="btn" id="gCancel">Cancel</button>
         <button class="btn primary" id="gSave">Save</button>
@@ -783,6 +786,7 @@ function applyMode() {
   document.querySelector(".servo-card").classList.toggle("group", grp);
   $("groupChips").hidden = !grp;
   $("editGroupBtn").hidden = !grp;
+  $("deleteGroupBtn").hidden = !grp;
   $("editNameBtn").hidden = grp;
   $("colorPick").hidden = grp;
   $("mirrored").closest("label").hidden = grp;
@@ -1573,7 +1577,6 @@ function openGroupDialog(key) {
   $("groupModalTitle").textContent = g ? `Edit group ${g.name}` : "New group";
   $("gName").value = g ? g.name : "";
   $("gErr").textContent = "";
-  $("gDelete").hidden = !g;
   const ids = [...new Set([...state.ids, ...(g ? g.members : [])])].sort((a, b) => a - b);
   $("gMembers").innerHTML = "";
   for (const id of ids) {
@@ -1618,14 +1621,13 @@ $("gSave").onclick = async () => {
   } catch (e) { state.pendingGroup = null; $("gErr").textContent = e.message; }
 };
 function curGroupBy(key) { return (state.groups || []).find((g) => g.key === key); }
-$("gDelete").onclick = async () => {
-  const g = curGroupBy(editingGroup);
-  if (!g || !await ask(`Delete group “${g.name}”? The servos stay as they are.`, "Delete")) return;
+$("deleteGroupBtn").onclick = async () => {
+  const g = curGroup();
+  if (!g || !await ask(`Delete group “${g.name}”?\n\nThe servos keep their settings and stay connected; only the group is removed from config.toml.`, "Delete group")) return;
   try {
-    await send("groupDelete", { group: g.key });
-    closeGroupDialog();
+    await send("groupDelete", { group: g.key }); // the server logs it to every window
     if (state.selGroup === g.key) selectServo(g.members[0]);
-  } catch (e) { $("gErr").textContent = e.message; }
+  } catch (e) { log(`delete group: ${e.message}`, "error"); }
 };
 
 $("colorPick").addEventListener("change", (e) => {
