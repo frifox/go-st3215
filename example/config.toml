@@ -2,14 +2,8 @@
 # Edited by the web UI; changes made here are read on startup.
 
 [1]
-Name = "Right"
+Name = "Right Servo"
 Mirrored = true
 
 [2]
-Name = "Left"
-
-[group.rig]
-Name = "Group"
-Members = [1, 2]
-MaxSpread = 20
-MaxFightLoad = 30.0
+Name = "Left Servo"

@@ -4,6 +4,10 @@ Go package for controlling and monitoring **Waveshare ST3215** serial bus servos
 (Feetech STS3215 protocol) through the **Waveshare Bus Servo Adapter (A)**.
 Works on Linux and macOS. The only dependency is `go.bug.st/serial`.
 
+![Web console demo controlling two ST3215 servos](docs/screenshot.jpg)
+
+*The [web console demo](#demo-web-console) driving two ST3215 servos.*
+
 ```go
 import st3215 "github.com/frifox/go-st3215"
 
