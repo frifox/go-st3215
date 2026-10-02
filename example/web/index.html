@@ -75,7 +75,11 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 .span2 { grid-column: span 2; }
 @media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } .span2 { grid-column: auto; } }
 /* dial + telemetry */
-.overview { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: center; }
+.toprow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: stretch; }
+@media (max-width: 1250px) { .toprow { grid-template-columns: minmax(0, 1fr); } }
+.history-card { display: flex; flex-direction: column; min-width: 0; }
+.chart-body { flex: 1; position: relative; min-height: 220px; }
+.overview { display: grid; grid-template-columns: 240px auto; gap: 16px; align-items: center; }
 @media (max-width: 560px) { .overview { grid-template-columns: minmax(0, 1fr); justify-items: center; } }
 #dial { width: 240px; height: 240px; cursor: crosshair; user-select: none; }
 #dial .face { fill: var(--panel-2); stroke: var(--border); }
@@ -88,7 +92,8 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 #dial .plate { fill: var(--panel); stroke: var(--border); }
 #dial .readout { fill: var(--text); font: 600 18px var(--mono); text-anchor: middle; }
 #dial .sub { fill: var(--muted); font: 11px var(--mono); text-anchor: middle; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; width: 100%; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); grid-template-rows: repeat(3, auto); grid-auto-flow: column; gap: 10px; }
+.servo-card .chips { width: 0; min-width: 100%; } /* wrap to the tiles width instead of widening the card */
 .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
 .tile .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
 .tile .v { font: 600 18px var(--mono); margin-top: 2px; white-space: nowrap; }
@@ -101,7 +106,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 .tabs { display: inline-flex; max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-left: auto; }
 .tabs button { border: 0; background: transparent; padding: 3px 10px; cursor: pointer; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--muted); }
 .tabs button.active { background: var(--accent); color: #fff; }
-#chart { width: 100%; height: 200px; display: block; }
+#chart { position: absolute; inset: 14px; width: calc(100% - 28px); height: calc(100% - 28px); display: block; }
 /* controls */
 .field { display: grid; grid-template-columns: 110px 1fr 90px; gap: 10px; align-items: center; margin-bottom: 10px; }
 .field label { color: var(--muted); font-size: 13px; }
@@ -260,7 +265,8 @@ td .num { width: 90px; padding: 3px 6px; }
   </aside>
 
   <main class="main" id="main" hidden>
-    <section class="card span2">
+    <div class="toprow span2">
+    <section class="card servo-card">
       <h2>Servo <span id="selId">–</span>
         <label class="switch head-switch" title="For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo."><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored</span></label>
         <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
@@ -290,7 +296,7 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
     </section>
 
-    <section class="card span2">
+    <section class="card history-card">
       <h2>History (30 s)
         <div class="tabs" id="chartTabs">
           <button data-k="position" class="active">Position</button>
@@ -300,8 +306,9 @@ td .num { width: 90px; padding: 3px 6px; }
           <button data-k="temperature">Temp</button>
         </div>
       </h2>
-      <div class="card-body"><canvas id="chart"></canvas></div>
+      <div class="card-body chart-body"><canvas id="chart"></canvas></div>
     </section>
+    </div>
 
     <section class="card">
       <h2>Control</h2>
@@ -694,6 +701,7 @@ function drawChart() {
   ctx.stroke();
 }
 window.addEventListener("resize", drawChart);
+new ResizeObserver(() => drawChart()).observe($("chart").parentElement);
 
 // ---------------------------------------------------------------- config & registers
 function isMultiTurn(c) { return c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
