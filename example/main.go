@@ -486,23 +486,30 @@ type configMsg struct {
 // request is a command from the browser. Only the fields relevant to Type
 // are set.
 type request struct {
-	Seq      int     `json:"seq"`
-	Type     string  `json:"type"`
-	ID       uint8   `json:"id"`
-	Port     string  `json:"port"`
-	Baud     int     `json:"baud"`
-	First    uint8   `json:"first"`
-	Last     uint8   `json:"last"`
-	Position int     `json:"position"`
-	Speed    int     `json:"speed"`
-	Acc      uint8   `json:"acc"`
-	On       bool    `json:"on"`
-	Mode     int     `json:"mode"`
-	Duty     int     `json:"duty"`
-	NewID    uint8   `json:"newId"`
-	Register string  `json:"register"`
-	Value    int     `json:"value"`
-	Percent  float64 `json:"percent"`
+	Seq      int        `json:"seq"`
+	Type     string     `json:"type"`
+	ID       uint8      `json:"id"`
+	Port     string     `json:"port"`
+	Baud     int        `json:"baud"`
+	First    uint8      `json:"first"`
+	Last     uint8      `json:"last"`
+	Position int        `json:"position"`
+	Speed    int        `json:"speed"`
+	Acc      uint8      `json:"acc"`
+	On       bool       `json:"on"`
+	Mode     int        `json:"mode"`
+	Duty     int        `json:"duty"`
+	NewID    uint8      `json:"newId"`
+	Register string     `json:"register"`
+	Value    int        `json:"value"`
+	Percent  float64    `json:"percent"`
+	Values   []regValue `json:"values"` // for "tune"
+	Save     bool       `json:"save"`   // for "tune": persist instead of until power-off
+}
+
+type regValue struct {
+	Register string `json:"register"`
+	Value    int    `json:"value"`
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +681,26 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			return fmt.Errorf("unknown register %q", req.Register)
 		}
 		return sv.Write(reg, req.Value)
+	case "tune":
+		for _, rv := range req.Values {
+			reg, ok := st3215.RegisterByName(rv.Register)
+			if !ok {
+				return fmt.Errorf("unknown register %q", rv.Register)
+			}
+			write := sv.WriteTemporary
+			if req.Save {
+				write = sv.Write
+			}
+			if err := write(reg, rv.Value); err != nil {
+				return fmt.Errorf("%s: %w", reg.Name, err)
+			}
+		}
+		how := "until power-off"
+		if req.Save {
+			how = "saved"
+		}
+		s.logf("info", "servo %d: tuned %d register(s), %s", req.ID, len(req.Values), how)
+		return nil
 	case "config":
 		cfg, err := sv.ReadConfig()
 		if err != nil {

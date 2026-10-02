@@ -80,6 +80,28 @@ func (s *Servo) Write(r Register, v int) error {
 	return err
 }
 
+// WriteTemporary writes a register without persisting it: for EEPROM
+// registers the write lock is closed first, so the servo uses the new value
+// until it is power-cycled and then reverts to the stored one. Handy for
+// trying tuning values under load before saving them with Write. SRAM
+// registers behave as with Write.
+func (s *Servo) WriteTemporary(r Register, v int) error {
+	if r.ReadOnly {
+		return fmt.Errorf("st3215: register %s is read-only", r.Name)
+	}
+	data, err := r.encode(v)
+	if err != nil {
+		return err
+	}
+	if r.Area == EEPROM {
+		if err := s.LockEEPROM(); err != nil {
+			return fmt.Errorf("lock EEPROM: %w", err)
+		}
+	}
+	_, err = s.bus.Write(s.id, r.Addr, data)
+	return err
+}
+
 // ReadMemory returns the raw memory table (addresses 0..70).
 func (s *Servo) ReadMemory() ([]byte, error) {
 	b, _, err := s.bus.Read(s.id, 0, memoryTableSize)

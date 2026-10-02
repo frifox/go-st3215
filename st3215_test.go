@@ -377,3 +377,17 @@ func TestRegisterValueFromMemory(t *testing.T) {
 		t.Fatal("Value")
 	}
 }
+
+func TestWriteTemporary(t *testing.T) {
+	b, p := newTestBus(t, 1)
+	s := b.Servo(1)
+	p.servos[1].mem[RegLock.Addr] = 0 // left unlocked by someone else
+	if err := s.WriteTemporary(RegPositionP, 48); err != nil {
+		t.Fatal(err)
+	}
+	hexEq(t, p.written[0], mustPacket(1, InstWrite, 55, 1)) // lock first
+	hexEq(t, p.written[1], mustPacket(1, InstWrite, 21, 48))
+	if len(p.written) != 2 || p.servos[1].mem[RegPositionP.Addr] != 48 {
+		t.Fatal("temporary write")
+	}
+}

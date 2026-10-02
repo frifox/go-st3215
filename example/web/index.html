@@ -71,7 +71,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 .servo-item .row2 { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 /* main grid */
-.main { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-content: start; }
+.main { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-content: start; align-items: start; }
 .span2 { grid-column: span 2; }
 @media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } .span2 { grid-column: auto; } }
 /* dial + telemetry */
@@ -135,6 +135,17 @@ td .num { width: 90px; padding: 3px 6px; }
 .head-switch .track { width: 30px; height: 18px; }
 .head-switch .track::after { width: 12px; height: 12px; }
 .head-switch input:checked + .track::after { transform: translateX(12px); }
+/* tuning */
+.col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.tune-group { margin-bottom: 12px; }
+.tune-group h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 650; }
+.tune-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 64px 84px; gap: 8px; align-items: center; margin-bottom: 4px; }
+.tune-row label { font-size: 13px; cursor: help; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tune-row.changed label { color: var(--accent); font-weight: 600; }
+.tune-row.changed label::before { content: "● "; font-size: 9px; vertical-align: middle; }
+.tune-row .num { padding: 3px 6px; }
+.tune-row .unit { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
+@media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px; } .tune-row .unit { display: none; } }
 /* setup steps */
 .wizard { max-width: 760px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
 .steps { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
@@ -349,6 +360,7 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
     </section>
 
+    <div class="col">
     <section class="card">
       <h2>Setup</h2>
       <div class="card-body">
@@ -371,6 +383,30 @@ td .num { width: 90px; padding: 3px 6px; }
         <div class="row"><button class="btn" id="cfgBtn">Reload registers</button></div>
       </div>
     </section>
+
+    <section class="card">
+      <h2>Tuning <span class="spacer"></span>
+        <select id="tunePreset" class="num" style="width:auto;text-transform:none;letter-spacing:0;font-weight:400;font-family:inherit">
+          <option value="">Load preset…</option>
+          <option value="factory">Factory defaults</option>
+          <option value="soft">Light arm, smooth</option>
+          <option value="heavy">Heavy / high inertia</option>
+          <option value="stiff">Stiff hold under gravity</option>
+        </select>
+      </h2>
+      <div class="card-body">
+        <div id="tuneBody"></div>
+        <div class="row" style="margin-top:12px">
+          <span class="hint" id="tuneStatus">No changes</span>
+          <span class="spacer"></span>
+          <button class="btn" id="tuneRevert" disabled>Revert</button>
+          <button class="btn" id="tuneTry" disabled title="Apply now; the servo goes back to its saved values when powered off">Try</button>
+          <button class="btn primary" id="tuneSave" disabled title="Apply and save to the servo's EEPROM">Save</button>
+        </div>
+        <p class="hint"><b>Try</b> applies the values until the servo is powered off, so you can test them with the real load. <b>Save</b> stores them on the servo. Presets are starting points: adjust one value at a time and watch the History chart after a move. Use a non-zero acceleration in Control.</p>
+      </div>
+    </section>
+    </div>
 
     <section class="card span2">
       <h2>Memory table</h2>
@@ -681,6 +717,7 @@ function onConfig(m) {
     state.syncControls = false;
   }
   renderRegisters(m.registers);
+  updateTuning(m.id, m.registers);
 }
 
 function renderRegisters(regs) {
@@ -802,6 +839,126 @@ $("setIdBtn").onclick = async () => {
   if (await cmd("setid", { newId }, `ID ${old} → ${newId}`)) { state.hist[newId] = state.hist[old]; selectServo(newId); }
 };
 $("cfgBtn").onclick = () => loadConfig(false);
+
+// ---------------------------------------------------------------- tuning
+const pct10 = (v) => `${(v / 10).toFixed(1)}%`;
+const ms10 = (v) => (v * 10 >= 1000 ? `${(v / 100).toFixed(2)} s` : `${v * 10} ms`);
+const TUNE = [
+  { group: "Position loop", items: [
+    { reg: "PositionP", label: "P · stiffness", max: 254, hint: "Push-back per step of position error. Higher = stiffer, smaller soft zone around the target; too high = overshoot or buzzing." },
+    { reg: "PositionD", label: "D · damping", max: 254, hint: "Brakes the motion as it approaches the target. Raise together with P to stop swinging; too high = jitter or noise." },
+    { reg: "PositionI", label: "I · integral", max: 254, hint: "Removes a steady offset under gravity, but tends to cause slow hunting when the gears have backlash. Usually 0." },
+  ] },
+  { group: "Near the target", items: [
+    { reg: "MinStartForce", label: "Min start force", max: 300, fmt: pct10, hint: "Minimum drive used for any correction. Higher = even 1-step errors overcome friction (stiffer hold); too high = small kicks." },
+    { reg: "CWDeadZone", label: "Dead zone CW", max: 32, fmt: (v) => `${(v * DEG).toFixed(2)}°`, hint: "Error (steps) tolerated clockwise before correcting. 0 = always correct; larger stops hunting across backlash." },
+    { reg: "CCWDeadZone", label: "Dead zone CCW", max: 32, fmt: (v) => `${(v * DEG).toFixed(2)}°`, hint: "Error (steps) tolerated counter-clockwise before correcting." },
+  ] },
+  { group: "Torque & protection", items: [
+    { reg: "MaxTorque", label: "Max torque", max: 1000, fmt: pct10, hint: "Torque ceiling (0.1%). Also the power-on value of the Torque limit." },
+    { reg: "OverloadTorque", label: "Overload level", max: 100, fmt: (v) => `${v}%`, hint: "Load above this % of max torque starts the overload timer." },
+    { reg: "ProtectionTime", label: "Overload time", max: 254, fmt: ms10, hint: "How long the load may stay above the overload level before protection trips." },
+    { reg: "ProtectiveTorque", label: "Protective torque", max: 100, fmt: (v) => `${v}%`, hint: "Torque allowed after overload protection has tripped." },
+    { reg: "ProtectionCurrent", label: "Current limit", max: 511, fmt: (v) => `${Math.round(v * 6.5)} mA`, hint: "Over-current protection threshold (6.5 mA units)." },
+    { reg: "OverCurrentTime", label: "Over-current time", max: 254, fmt: ms10, hint: "How long the current may exceed the limit before protection trips." },
+  ] },
+  { group: "Wheel mode speed loop", items: [
+    { reg: "SpeedP", label: "Speed P", max: 254, hint: "Speed loop proportional gain (wheel mode only)." },
+    { reg: "SpeedI", label: "Speed I", max: 254, hint: "Speed loop integral gain (wheel mode only)." },
+  ] },
+];
+const TUNE_ITEMS = TUNE.flatMap((g) => g.items);
+const FACTORY = { PositionP: 32, PositionD: 32, PositionI: 0, MinStartForce: 16, CWDeadZone: 1, CCWDeadZone: 1,
+  MaxTorque: 1000, OverloadTorque: 80, ProtectionTime: 200, ProtectiveTorque: 20, ProtectionCurrent: 500,
+  OverCurrentTime: 200, SpeedP: 10, SpeedI: 10 };
+// Presets only touch the loop; protection values stay as they are (except "factory").
+const PRESETS = {
+  factory: FACTORY,
+  soft: { PositionP: 24, PositionD: 40, PositionI: 0, MinStartForce: 10, CWDeadZone: 2, CCWDeadZone: 2 },
+  heavy: { PositionP: 40, PositionD: 80, PositionI: 0, MinStartForce: 30, CWDeadZone: 1, CCWDeadZone: 1 },
+  stiff: { PositionP: 64, PositionD: 64, PositionI: 0, MinStartForce: 40, CWDeadZone: 0, CCWDeadZone: 0 },
+};
+state.tune = { id: null, base: {}, cur: {} };
+
+(function buildTuning() {
+  const body = $("tuneBody");
+  for (const g of TUNE) {
+    const sec = document.createElement("div");
+    sec.className = "tune-group";
+    sec.innerHTML = `<h3>${g.group}</h3>`;
+    for (const it of g.items) {
+      const row = document.createElement("div");
+      row.className = "tune-row";
+      row.id = "tune-" + it.reg;
+      row.innerHTML = `<label title="${it.hint}">${it.label}</label><input type="range" min="0" max="${it.max}">` +
+        `<input type="number" class="num" min="0"><span class="unit"></span>`;
+      const [range, num] = row.querySelectorAll("input");
+      range.oninput = () => setTune(it.reg, Number(range.value));
+      num.onchange = () => setTune(it.reg, Number(num.value));
+      sec.appendChild(row);
+    }
+    body.appendChild(sec);
+  }
+})();
+
+function tuneChanges() {
+  return TUNE_ITEMS.filter((it) => state.tune.cur[it.reg] !== undefined && state.tune.cur[it.reg] !== state.tune.base[it.reg])
+    .map((it) => ({ register: it.reg, value: state.tune.cur[it.reg] }));
+}
+
+function setTune(reg, v) {
+  state.tune.cur[reg] = v;
+  renderTuning();
+}
+
+function renderTuning() {
+  for (const it of TUNE_ITEMS) {
+    const row = $("tune-" + it.reg), v = state.tune.cur[it.reg];
+    if (v === undefined) continue;
+    const [range, num] = row.querySelectorAll("input");
+    range.value = v;
+    if (document.activeElement !== num) num.value = v;
+    row.querySelector(".unit").textContent = it.fmt ? it.fmt(v) : "";
+    row.classList.toggle("changed", v !== state.tune.base[it.reg]);
+  }
+  const n = tuneChanges().length;
+  $("tuneStatus").textContent = n ? `${n} change${n > 1 ? "s" : ""} not applied` : "No changes";
+  ["tuneRevert", "tuneTry", "tuneSave"].forEach((id) => ($(id).disabled = !n));
+}
+
+// Called with the register list of a config message.
+function updateTuning(id, regs) {
+  const vals = Object.fromEntries(regs.map((r) => [r.name, r.value]));
+  const switched = state.tune.id !== id;
+  const pending = !switched && tuneChanges().length > 0;
+  state.tune.id = id;
+  state.tune.base = vals;
+  if (!pending) state.tune.cur = { ...vals };
+  renderTuning();
+}
+
+async function applyTuning(save) {
+  const values = tuneChanges();
+  if (!values.length) return;
+  if (save && !confirm(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?`)) return;
+  const ok = await cmd("tune", { values, save });
+  if (ok) {
+    state.tune.base = { ...state.tune.base, ...Object.fromEntries(values.map((v) => [v.register, v.value])) };
+    renderTuning();
+    loadConfig(false);
+  }
+}
+
+$("tuneTry").onclick = () => applyTuning(false);
+$("tuneSave").onclick = () => applyTuning(true);
+$("tuneRevert").onclick = () => { state.tune.cur = { ...state.tune.base }; renderTuning(); };
+$("tunePreset").onchange = (e) => {
+  const p = PRESETS[e.target.value];
+  e.target.value = "";
+  if (!p) return;
+  Object.assign(state.tune.cur, p);
+  renderTuning();
+};
 
 // ---------------------------------------------------------------- board & scan steps
 state.server = { connected: false, scanning: false, scanned: false, ids: [] };

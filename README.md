@@ -46,6 +46,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Calibration | `CalibrateMiddle` (current position becomes 2048), `SetPositionOffset` |
 | Configuration | `SetID`, `SetBaudRate`, `SetAngleLimits`, `SetVoltageLimits`, `SetMaxTemperature`, `SetProtection`, `SetPID`, `SetDeadZone`, `ReadConfig` |
 | Raw access | `Servo.Read(reg)` / `Servo.Write(reg, v)` for every register in `Registers`; `Bus.Read/Write/SyncRead/SyncWrite` |
+| Tuning trials | `Servo.WriteTemporary(reg, v)` applies EEPROM settings (PID, dead zone, protection...) until power-off without saving them |
 | Faults | `Status` bit set (voltage, sensor, temperature, current, angle, overload); `WithStatusHandler` callback |
 
 EEPROM writes are wrapped in unlock → write → lock automatically so they survive power cycles.
@@ -86,7 +87,9 @@ The page walks through three steps:
 2. **Find servos**: scans an ID range (quick 0–20 or full 0–253) with live progress.
 3. **Monitor & control**: only the servos found are shown. You get a live position dial, telemetry,
    30 s history charts, controls for every mode, setup actions (center calibration, ID change,
-   multi-turn) and an editable view of the full memory table.
+   multi-turn), a Tuning card (position loop gains, dead zones, start force, torque and protection,
+   with presets; **Try** applies until power-off, **Save** persists) and an editable view of the
+   full memory table.
 
 ```bash
 cd example
