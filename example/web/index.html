@@ -636,13 +636,14 @@ td .num { width: 90px; padding: 3px 6px; }
       <div class="row" style="margin-top:0">
         <span style="width:90px">Arm up at</span>
         <input type="number" id="svDialUp" class="num" min="0" max="359.9" step="0.1" style="width:90px">
-        <span class="hint">° factory</span>
+        <span class="hint">°</span>
         <button class="btn small" id="svDialUpHere" title="The arm is pointing straight up right now">Arm is up now</button>
         <button class="btn small" id="svDialUpClear">Reset</button>
       </div>
       <p class="hint">Dial orientation: where this servo's arm points physically straight up, on the factory scale. The dial is turned so its needle matches the real arm; zeros and readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
       <div class="err" id="svErr"></div>
       <div class="row" style="margin-top:16px">
+        <button class="btn danger" id="svFactory" title="Send the servo's RESET command: all saved settings back to factory">Factory reset</button>
         <span class="spacer"></span>
         <button class="btn" id="svCancel">Cancel</button>
         <button class="btn primary" id="svSave">Save</button>
@@ -1892,6 +1893,18 @@ $("svColorReset").onclick = () => {
   $("svColor").value = PALETTE[(((svID - 1) % PALETTE.length) + PALETTE.length) % PALETTE.length];
 };
 $("svCancel").onclick = closeServoEdit;
+$("svFactory").onclick = async () => {
+  const id = svID;
+  const others = state.ids.filter((x) => x !== id);
+  if (!await ask(`Factory reset servo ${id}?\n\n` +
+    "All settings saved on the servo go back to factory defaults: zero (position offset), angle limits (multi-turn off), mode, tuning, protection limits, and most likely the ID (to 1) and baud rate (to 1 Mbps).\n\n" +
+    "Torque is switched off first, so the arm will go limp: support it if it can fall." +
+    (id !== 1 && others.includes(1) ? "\n\nServo 1 is also connected: if this servo becomes ID 1, the two can't be told apart until you disconnect one and change its ID." : "") +
+    "\n\nName, color, mirrored and groups in config.toml are kept.", "Factory reset")) return;
+  closeServoEdit();
+  log(`servo ${id}: factory reset…`);
+  try { await send("factoryReset", { id }); } catch (e) { log(`factory reset: ${e.message}`, "error"); }
+};
 $("servoModal").addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeServoEdit();
   if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type !== "checkbox") $("svSave").click();

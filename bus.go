@@ -203,10 +203,15 @@ func (b *Bus) Action() error {
 }
 
 // FactoryReset restores the memory table of a servo to factory defaults.
-// Note: this may also reset the servo ID and baud rate.
+// The ST3215 manual doesn't list which settings are reset; expect the ID
+// (to 1), baud rate, offset, limits, mode and tuning. The acknowledgement
+// may come from the new ID, so a missing one is not an error: look for the
+// servo afterwards (Ping the old ID, then ID 1). Switch torque off first, as
+// the zero may change under a servo that is holding a goal.
 func (b *Bus) FactoryReset(id uint8) error {
-	_, err := b.transact(id, InstReset, nil, b.expectAck(id), 0)
-	return err
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.send(id, InstReset, nil)
 }
 
 // SyncWriteEntry is one servo's payload in a SyncWrite.

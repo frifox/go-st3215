@@ -33,26 +33,32 @@ func newSimPort(ids ...uint8) *simPort {
 	p := &simPort{timeout: 50 * time.Millisecond}
 	for _, id := range ids {
 		s := &simServo{pos: 1024 + rand.Float64()*2048, last: time.Now()}
-		m := &s.mem
-		m[0], m[1], m[3], m[4] = 3, 6, 9, 3
-		m[5] = id
-		m[8] = 1
-		put16(m[:], 11, 4095)
-		m[13], m[14], m[15] = 70, 140, 40
-		put16(m[:], 16, 1000)
-		m[19], m[20] = 44, 47
-		m[21], m[22] = 32, 32
-		put16(m[:], 24, 16)
-		m[26], m[27] = 1, 1
-		put16(m[:], 28, 500)
-		m[30] = 1
-		m[34], m[35], m[36], m[37], m[38], m[39] = 20, 200, 80, 10, 200, 10
-		put16(m[:], 48, 1000)
-		m[55] = 1
-		put16(m[:], 42, uint16(s.pos))
+		s.mem = factoryMem(id)
+		put16(s.mem[:], 42, uint16(s.pos))
 		p.servos = append(p.servos, s)
 	}
 	return p
+}
+
+// factoryMem is the factory memory table (sts3215_memory_table.xlsx).
+func factoryMem(id uint8) [71]byte {
+	var m [71]byte
+	m[0], m[1], m[3], m[4] = 3, 6, 9, 3
+	m[5] = id
+	m[8] = 1
+	put16(m[:], 11, 4095)
+	m[13], m[14], m[15] = 70, 140, 40
+	put16(m[:], 16, 1000)
+	m[19], m[20] = 44, 47
+	m[21], m[22] = 32, 32
+	put16(m[:], 24, 16)
+	m[26], m[27] = 1, 1
+	put16(m[:], 28, 500)
+	m[30] = 1
+	m[34], m[35], m[36], m[37], m[38], m[39] = 20, 200, 80, 10, 200, 10
+	put16(m[:], 48, 1000)
+	m[55] = 1
+	return m
 }
 
 func put16(m []byte, a int, v uint16) { m[a], m[a+1] = byte(v), byte(v>>8) }
@@ -163,6 +169,13 @@ func (p *simPort) handle(pkt []byte) {
 				s.write(s.regBuf)
 				s.regBuf, s.mem[64] = nil, 0
 			}
+		case st3215.InstReset:
+			// Assumed like the real servo: everything back to factory, ID 1,
+			// torque off; it answers under the new ID.
+			s.mem = factoryMem(1)
+			s.mem[56], s.mem[57] = 0, 0
+			s.regBuf = nil
+			p.reply(s, nil)
 		case st3215.InstSyncWrite:
 			addr, l := params[0], int(params[1])
 			for i := 2; i+1+l <= len(params); i += l + 1 {
