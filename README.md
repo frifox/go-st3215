@@ -115,6 +115,9 @@ Name = "Right"
 Mirrored = true
 ```
 
+Several browser windows can be open at once: connection, scan, telemetry, names, mirrored state and
+servo settings stay in sync across them (each window still picks its own selected servo).
+
 The demo is a separate Go module (`example/go.mod`), so the library itself only depends on
 `go.bug.st/serial`. Listing USB port details uses cgo on macOS (the Xcode command line tools).
 

@@ -501,6 +501,7 @@ async function cmd(type, payload = {}, msg) {
 
 function onMessage(m) {
   switch (m.type) {
+    case "hello": state.clientId = m.clientId; break;
     case "state": onState(m); break;
     case "ports": state.portsMsg = m; renderPorts(); break;
     case "scanProgress": onScanProgress(m); break;
@@ -752,14 +753,21 @@ function onConfig(m) {
   setLimitArc(c.minAngleLimit, c.maxAngleLimit);
   const t = $("target");
   if (isMultiTurn(c)) { t.min = -30719; t.max = 30719; } else { t.min = c.minAngleLimit; t.max = c.maxAngleLimit; }
-  if (state.syncControls) {
-    setTarget(c.mode === 0 ? c.goalPosition : 2048);
-    if (c.goalSpeed > 0) setPair("speed", c.goalSpeed);
-    setPair("acc", c.acceleration);
-    setPair("tlimit", Math.round(c.torqueLimit / 10));
+  // Sliders follow the servo when loading a servo or when another window
+  // changed it, but not for this window's own changes (it may be mid-drag).
+  const remote = m.origin !== 0 && m.origin !== state.clientId;
+  if (state.syncControls || remote) {
+    const busy = (id) => document.activeElement === $(id) || document.activeElement === $(id + "Num");
+    if (!busy("target")) setTarget(c.mode === 0 ? c.goalPosition : 2048);
+    if (c.mode === 1) { if (!busy("wheel")) setPair("wheel", c.goalSpeed); }
+    else if (c.goalSpeed > 0 && !busy("speed")) setPair("speed", c.goalSpeed);
+    if (c.mode === 2 && !busy("pwm")) setPair("pwm", c.goalTime);
+    if (!busy("acc")) setPair("acc", c.acceleration);
+    if (!busy("tlimit")) setPair("tlimit", Math.round(c.torqueLimit / 10));
     state.syncControls = false;
   }
-  renderRegisters(m.registers);
+  // Don't rebuild the table under the user's cursor; it refreshes on the next update.
+  if (!$("regs").contains(document.activeElement)) renderRegisters(m.registers);
   updateTuning(m.id, m.registers);
 }
 
@@ -1014,7 +1022,7 @@ async function applyTuning(save) {
   const values = tuneChanges();
   if (!values.length) return;
   if (save && !confirm(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?`)) return;
-  const ok = await cmd("tune", { values, save });
+  const ok = await cmd("tune", { values, save }, `tuned ${values.length} value(s), ${save ? "saved" : "until power-off"}`);
   if (ok) {
     state.tune.base = { ...state.tune.base, ...Object.fromEntries(values.map((v) => [v.register, v.value])) };
     renderTuning();

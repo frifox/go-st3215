@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
@@ -131,13 +132,17 @@ type server struct {
 	scanning   bool
 	scanCancel context.CancelCauseFunc
 	cfg        *config // config.toml: names and mirrored state per ID
+	refresh    map[uint8]*pendingRefresh
 	clients    map[*client]struct{}
 }
 
 type client struct {
+	id   int // sent to the browser so it can tell its own changes from others'
 	conn *websocket.Conn
 	send chan any
 }
+
+var lastClientID atomic.Int64
 
 // push queues a message without blocking; it is dropped if the client is too slow.
 func (c *client) push(msg any) {
@@ -490,9 +495,15 @@ type registerInfo struct {
 	Value    int    `json:"value"`
 }
 
+type helloMsg struct {
+	Type     string `json:"type"`
+	ClientID int    `json:"clientId"`
+}
+
 type configMsg struct {
 	Type      string         `json:"type"`
 	ID        uint8          `json:"id"`
+	Origin    int            `json:"origin"` // client whose change triggered this; 0 = plain request, -1 = several
 	Config    st3215.Config  `json:"config"`
 	Registers []registerInfo `json:"registers"`
 }
@@ -540,10 +551,11 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := &client{conn: conn, send: make(chan any, 256)}
+	c := &client{id: int(lastClientID.Add(1)), conn: conn, send: make(chan any, 256)}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
+	c.push(helloMsg{Type: "hello", ClientID: c.id})
 	c.push(s.stateMsg())
 
 	done := make(chan struct{})
@@ -597,6 +609,153 @@ func (s *server) handle(c *client, req request) {
 		log.Printf("%s: %v", req.Type, err)
 	}
 	c.push(res)
+	if err == nil {
+		s.afterChange(c, req)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Keeping several browser windows in sync
+//
+// State, telemetry, scan progress and logs are broadcast to every window.
+// Servo settings are per-servo snapshots (configMsg): after any command that
+// changes a servo, a fresh snapshot is broadcast to all windows, and the other
+// windows get a short note in their log.
+
+// changeNote describes a servo-changing command for the other windows' logs;
+// "" means the command doesn't change servo settings.
+func changeNote(req request) string {
+	switch req.Type {
+	case "torque":
+		return fmt.Sprintf("torque %s", onOff(req.On))
+	case "move":
+		return "" // frequent while dragging; visible in telemetry anyway
+	case "stop":
+		return "stop"
+	case "wheel":
+		return fmt.Sprintf("wheel speed %d", req.Speed)
+	case "pwm":
+		return fmt.Sprintf("pwm %d", req.Duty)
+	case "mode":
+		return fmt.Sprintf("mode %s", st3215.Mode(req.Mode))
+	case "multiturn":
+		return fmt.Sprintf("multi-turn %s", onOff(req.On))
+	case "torqueLimit":
+		return fmt.Sprintf("torque limit %.0f%%", req.Percent)
+	case "calibrate":
+		return "center calibrated"
+	case "write":
+		return fmt.Sprintf("%s ← %d", req.Register, req.Value)
+	case "tune":
+		how := "until power-off"
+		if req.Save {
+			how = "saved"
+		}
+		return fmt.Sprintf("tuning changed (%d value(s), %s)", len(req.Values), how)
+	case "mirror":
+		return fmt.Sprintf("mirrored %s", onOff(req.On))
+	}
+	return ""
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
+}
+
+// changesServo lists the commands after which a fresh config is broadcast.
+var changesServo = map[string]bool{
+	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
+	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
+	"mirror": true, "setid": true,
+}
+
+func (s *server) afterChange(c *client, req request) {
+	if !changesServo[req.Type] {
+		return
+	}
+	id := req.ID
+	if req.Type == "setid" {
+		id = req.NewID
+	}
+	if note := changeNote(req); note != "" {
+		s.broadcastExcept(c, logMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: servo %d %s", req.ID, note)})
+	}
+	s.scheduleRefresh(id, c.id)
+}
+
+func (s *server) broadcastExcept(skip *client, msg any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.clients {
+		if c != skip {
+			c.push(msg)
+		}
+	}
+}
+
+type pendingRefresh struct {
+	timer  *time.Timer
+	origin int
+}
+
+// refreshDelay coalesces bursts of changes (e.g. dragging a slider) into one
+// config read and broadcast per servo.
+const refreshDelay = 150 * time.Millisecond
+
+func (s *server) scheduleRefresh(id uint8, origin int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refresh == nil {
+		s.refresh = map[uint8]*pendingRefresh{}
+	}
+	if p, ok := s.refresh[id]; ok {
+		if p.origin != origin {
+			p.origin = -1 // changes from several windows: everyone resyncs
+		}
+		p.timer.Reset(refreshDelay)
+		return
+	}
+	p := &pendingRefresh{origin: origin}
+	p.timer = time.AfterFunc(refreshDelay, func() {
+		s.mu.Lock()
+		delete(s.refresh, id)
+		origin := p.origin
+		s.mu.Unlock()
+		var msg configMsg
+		err := s.withBus(func(bus *st3215.Bus) error {
+			var err error
+			msg, err = readConfigMsg(bus, id)
+			return err
+		})
+		if err != nil {
+			log.Printf("refresh servo %d: %v", id, err)
+			return
+		}
+		msg.Origin = origin
+		s.broadcast(msg)
+	})
+	s.refresh[id] = p
+}
+
+func readConfigMsg(bus *st3215.Bus, id uint8) (configMsg, error) {
+	sv := bus.Servo(id)
+	cfg, err := sv.ReadConfig()
+	if err != nil {
+		return configMsg{}, err
+	}
+	mem, err := sv.ReadMemory()
+	if err != nil {
+		return configMsg{}, err
+	}
+	regs := make([]registerInfo, len(st3215.Registers))
+	for i, r := range st3215.Registers {
+		regs[i] = registerInfo{Name: r.Name, Addr: r.Addr, Size: r.Size, Area: r.Area.String(),
+			ReadOnly: r.ReadOnly, Min: r.Min, Max: r.Max, Unit: r.Unit, Value: r.Value(mem)}
+	}
+	return configMsg{Type: "config", ID: id, Config: cfg, Registers: regs}, nil
 }
 
 func (s *server) exec(c *client, req request) error {
@@ -721,23 +880,14 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if req.Save {
 			how = "saved"
 		}
-		s.logf("info", "servo %d: tuned %d register(s), %s", req.ID, len(req.Values), how)
+		log.Printf("servo %d: tuned %d register(s), %s", req.ID, len(req.Values), how)
 		return nil
 	case "config":
-		cfg, err := sv.ReadConfig()
+		msg, err := readConfigMsg(bus, req.ID)
 		if err != nil {
 			return err
 		}
-		mem, err := sv.ReadMemory()
-		if err != nil {
-			return err
-		}
-		regs := make([]registerInfo, len(st3215.Registers))
-		for i, r := range st3215.Registers {
-			regs[i] = registerInfo{Name: r.Name, Addr: r.Addr, Size: r.Size, Area: r.Area.String(),
-				ReadOnly: r.ReadOnly, Min: r.Min, Max: r.Max, Unit: r.Unit, Value: r.Value(mem)}
-		}
-		c.push(configMsg{Type: "config", ID: req.ID, Config: cfg, Registers: regs})
+		c.push(msg)
 		return nil
 	}
 	return fmt.Errorf("unknown command %q", req.Type)
