@@ -128,7 +128,7 @@ The page walks through three steps:
    (WCH CH34x, FTDI, CP210x, PL2303). Pick one (or the built-in simulator) and a baud rate.
 2. **Find servos**: scans an ID range (quick 0–20 or full 0–253) with live progress.
 3. **Monitor & control**: only the servos found are shown. You get a live position dial, telemetry,
-   30 s history charts, controls for every mode, setup actions (center calibration, ID change,
+   30 s history charts, controls for every mode, setup actions (0° calibration, motion range limits, ID change,
    multi-turn), a Tuning card (position loop gains, dead zones, start force, torque and protection,
    with presets and **Auto…** tuning; **Try** applies until power-off, **Save** persists) and an
    editable view of the full memory table.
