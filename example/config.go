@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,11 +21,41 @@ import (
 type servoConfig struct {
 	Name     string `toml:"Name,omitempty"`
 	Mirrored bool   `toml:"Mirrored,omitempty"`
+	Color    string `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
 }
 
 func (c servoConfig) empty() bool { return c == servoConfig{} }
 
-// config is config.toml: one table per servo ID.
+// groupConfig is a set of servos driven as one (see st3215.Group).
+type groupConfig struct {
+	Name    string  `toml:"Name"`
+	Members []uint8 `toml:"Members"` // leader first
+	// Fight detection: warn (or cut torque) when members disagree.
+	MaxSpread    int     `toml:"MaxSpread,omitzero"`    // steps; 0 = default
+	MaxFightLoad float64 `toml:"MaxFightLoad,omitzero"` // %; 0 = default
+	OnFight      string  `toml:"OnFight,omitempty"`     // "warn" (default) or "torque-off"
+}
+
+const (
+	defaultMaxSpread    = 20 // steps (≈1.8°)
+	defaultMaxFightLoad = 30 // % load pushing in opposite directions
+)
+
+func (g groupConfig) maxSpread() int {
+	if g.MaxSpread > 0 {
+		return g.MaxSpread
+	}
+	return defaultMaxSpread
+}
+
+func (g groupConfig) maxFightLoad() float64 {
+	if g.MaxFightLoad > 0 {
+		return g.MaxFightLoad
+	}
+	return defaultMaxFightLoad
+}
+
+// config is config.toml: one table per servo ID, plus [group.<key>] tables.
 //
 //	[1]
 //	Name = "Left"
@@ -32,21 +63,26 @@ func (c servoConfig) empty() bool { return c == servoConfig{} }
 //	[2]
 //	Name = "Right"
 //	Mirrored = true
+//
+//	[group.pitch]
+//	Name = "Pitch"
+//	Members = [1, 2]
 type config struct {
 	path string
 
 	mu     sync.Mutex
 	servos map[uint8]servoConfig
+	groups map[string]groupConfig
 }
 
-const configHeader = `# go-st3215 demo: per-servo settings, keyed by servo ID.
-# Edited by the web UI (Name, Mirrored); changes made here are read on startup.
+const configHeader = `# go-st3215 demo: per-servo settings keyed by servo ID, and servo groups.
+# Edited by the web UI; changes made here are read on startup.
 `
 
 // loadConfig reads path; a missing file yields an empty config.
 func loadConfig(path string) (*config, []string, error) {
-	c := &config{path: path, servos: map[uint8]servoConfig{}}
-	var raw map[string]servoConfig
+	c := &config{path: path, servos: map[uint8]servoConfig{}, groups: map[string]groupConfig{}}
+	var raw map[string]toml.Primitive
 	md, err := toml.DecodeFile(path, &raw)
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil, nil
@@ -55,16 +91,62 @@ func loadConfig(path string) (*config, []string, error) {
 		return nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	var warnings []string
-	for _, k := range md.Undecoded() {
-		warnings = append(warnings, fmt.Sprintf("%s: unknown key %q ignored", path, k.String()))
+	warn := func(format string, args ...any) {
+		warnings = append(warnings, path+": "+fmt.Sprintf(format, args...))
 	}
-	for key, sc := range raw {
-		id, err := strconv.Atoi(key)
-		if err != nil || id < 0 || id > 253 {
-			warnings = append(warnings, fmt.Sprintf("%s: [%s] is not a servo ID (0-253), ignored", path, key))
+	for key, prim := range raw {
+		if key == "group" {
+			var groups map[string]groupConfig
+			if err := md.PrimitiveDecode(prim, &groups); err != nil {
+				return nil, nil, fmt.Errorf("%s: [group]: %w", path, err)
+			}
+			for gk, g := range groups {
+				c.groups[gk] = g
+			}
 			continue
 		}
+		id, err := strconv.Atoi(key)
+		if err != nil || id < 0 || id > 253 {
+			warn("[%s] is not a servo ID (0-253), ignored", key)
+			continue
+		}
+		var sc servoConfig
+		if err := md.PrimitiveDecode(prim, &sc); err != nil {
+			return nil, nil, fmt.Errorf("%s: [%s]: %w", path, key, err)
+		}
 		c.servos[uint8(id)] = sc
+	}
+	for _, k := range md.Undecoded() {
+		warn("unknown key %q ignored", k.String())
+	}
+	// A servo can be in one group only; drop invalid or duplicate members.
+	keys := make([]string, 0, len(c.groups))
+	for k := range c.groups {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	taken := map[uint8]string{}
+	for _, k := range keys {
+		g := c.groups[k]
+		var members []uint8
+		for _, id := range g.Members {
+			switch {
+			case id > 253:
+				warn("group %q: %d is not a servo ID, ignored", k, id)
+			case taken[id] != "":
+				warn("group %q: servo %d is already in group %q, ignored", k, id, taken[id])
+			default:
+				taken[id] = k
+				members = append(members, id)
+			}
+		}
+		g.Members = members
+		if len(members) < 2 {
+			warn("group %q has fewer than 2 members, ignored", k)
+			delete(c.groups, k)
+			continue
+		}
+		c.groups[k] = g
 	}
 	return c, warnings, nil
 }
@@ -75,7 +157,7 @@ func (c *config) get(id uint8) servoConfig {
 	return c.servos[id]
 }
 
-// all returns a copy of every entry.
+// all returns a copy of every servo entry.
 func (c *config) all() map[uint8]servoConfig {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -86,7 +168,43 @@ func (c *config) all() map[uint8]servoConfig {
 	return out
 }
 
-// update changes one entry and saves the file.
+// allGroups returns a copy of every group.
+func (c *config) allGroups() map[string]groupConfig {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]groupConfig, len(c.groups))
+	for k, g := range c.groups {
+		g.Members = slices.Clone(g.Members)
+		out[k] = g
+	}
+	return out
+}
+
+func (c *config) group(key string) (groupConfig, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	g, ok := c.groups[key]
+	g.Members = slices.Clone(g.Members)
+	return g, ok
+}
+
+// groupOf returns the key of the group containing id, or "".
+func (c *config) groupOf(id uint8) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.groupOfLocked(id)
+}
+
+func (c *config) groupOfLocked(id uint8) string {
+	for k, g := range c.groups {
+		if slices.Contains(g.Members, id) {
+			return k
+		}
+	}
+	return ""
+}
+
+// update changes one servo entry and saves the file.
 func (c *config) update(id uint8, f func(*servoConfig)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -100,32 +218,98 @@ func (c *config) update(id uint8, f func(*servoConfig)) error {
 	return c.saveLocked()
 }
 
-// move re-keys an entry after a servo ID change and saves the file.
-func (c *config) move(from, to uint8) error {
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// setGroup creates (key == "") or updates a group and saves the file. It
+// returns the group's key.
+func (c *config) setGroup(key string, g groupConfig) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	sc, ok := c.servos[from]
-	if !ok {
-		return nil
+	if len(g.Members) < 2 {
+		return "", errors.New("a group needs at least 2 servos")
 	}
-	delete(c.servos, from)
-	c.servos[to] = sc
+	if g.OnFight != "" && g.OnFight != "warn" && g.OnFight != "torque-off" {
+		return "", fmt.Errorf("OnFight must be \"warn\" or \"torque-off\"")
+	}
+	seen := map[uint8]bool{}
+	for _, id := range g.Members {
+		if seen[id] {
+			return "", fmt.Errorf("servo %d is listed twice", id)
+		}
+		seen[id] = true
+		if other := c.groupOfLocked(id); other != "" && other != key {
+			return "", fmt.Errorf("servo %d is already in group %q", id, c.groups[other].Name)
+		}
+	}
+	if key == "" {
+		base := strings.Trim(slugRe.ReplaceAllString(strings.ToLower(g.Name), "-"), "-")
+		if base == "" {
+			base = "group"
+		}
+		key = base
+		for n := 2; c.groups[key].Members != nil; n++ {
+			key = fmt.Sprintf("%s-%d", base, n)
+		}
+	} else if _, ok := c.groups[key]; !ok {
+		return "", fmt.Errorf("unknown group %q", key)
+	}
+	c.groups[key] = g
+	return key, c.saveLocked()
+}
+
+func (c *config) deleteGroup(key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.groups[key]; !ok {
+		return fmt.Errorf("unknown group %q", key)
+	}
+	delete(c.groups, key)
 	return c.saveLocked()
 }
 
-// saveLocked writes the file atomically, tables in numeric ID order.
+// move re-keys a servo after an ID change (entry and group membership) and
+// saves the file.
+func (c *config) move(from, to uint8) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if sc, ok := c.servos[from]; ok {
+		delete(c.servos, from)
+		c.servos[to] = sc
+	}
+	for k, g := range c.groups {
+		if i := slices.Index(g.Members, from); i >= 0 {
+			g.Members[i] = to
+			c.groups[k] = g
+		}
+	}
+	return c.saveLocked()
+}
+
+// saveLocked writes the file atomically: servo tables in numeric ID order,
+// then groups by key.
 func (c *config) saveLocked() error {
 	ids := make([]int, 0, len(c.servos))
 	for id := range c.servos {
 		ids = append(ids, int(id))
 	}
 	slices.Sort(ids)
+	keys := make([]string, 0, len(c.groups))
+	for k := range c.groups {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
 
 	var buf bytes.Buffer
 	buf.WriteString(configHeader)
 	for _, id := range ids {
 		fmt.Fprintf(&buf, "\n[%d]\n", id)
 		if err := toml.NewEncoder(&buf).Encode(c.servos[uint8(id)]); err != nil {
+			return err
+		}
+	}
+	for _, k := range keys {
+		fmt.Fprintf(&buf, "\n[group.%s]\n", k)
+		if err := toml.NewEncoder(&buf).Encode(c.groups[k]); err != nil {
 			return err
 		}
 	}
@@ -155,4 +339,15 @@ func validName(name string) (string, error) {
 		return "", errors.New("name must be a single line")
 	}
 	return name, nil
+}
+
+var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// validColor accepts "#rrggbb" or "" (back to the palette color).
+func validColor(color string) (string, error) {
+	color = strings.TrimSpace(color)
+	if color != "" && !colorRe.MatchString(color) {
+		return "", errors.New(`color must look like "#1f77b4"`)
+	}
+	return strings.ToLower(color), nil
 }

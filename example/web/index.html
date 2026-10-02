@@ -67,7 +67,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 }
 .servo-item.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
 .servo-item .row1 { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.servo-item .row1[data-mirrored="1"]::after { content: "mirrored"; margin-left: auto; font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
+.servo-item .row1[data-mirrored="1"]::after { content: "↔"; margin-left: auto; font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
 .servo-item .row1 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sel-title { text-transform: none; letter-spacing: 0; color: var(--text); font-size: 13px; font-weight: 650; }
 .icon-btn { border: 0; background: transparent; color: var(--muted); padding: 2px; border-radius: 6px; cursor: pointer; display: inline-grid; place-items: center; }
@@ -166,6 +166,37 @@ td .num { width: 90px; padding: 3px 6px; }
 #tuneStatus.warn { color: var(--warn); }
 .tune-row .unit { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
 @media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px; } .tune-row .unit { display: none; } }
+/* groups & colors */
+.side-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 8px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.side-head:not(:first-child) { margin-top: 16px; }
+.btn.small { padding: 2px 8px; font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+#groupList:empty { display: none; }
+.servo-item { border-left: 4px solid var(--c, var(--border)); }
+.servo-item .row1 .grp { margin-left: auto; font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.group-item .members { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.cdot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; flex: none; }
+.mchip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text); padding: 1px 8px 1px 6px; border-radius: 999px; border: 1px solid var(--border); }
+.member-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.swatch { width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; overflow: hidden; cursor: pointer; background: none; flex: none; }
+.swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.swatch::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.swatch::-moz-color-swatch { border: 0; border-radius: 50%; }
+.member-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.member-table td, .member-table th { white-space: nowrap; }
+.member-table td:first-child { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+/* group console: smaller dial, room for the member table */
+.servo-card.group .overview { grid-template-columns: minmax(120px, 170px) minmax(0, 1fr); }
+.servo-card.group #dial { max-width: 170px; }
+.member-table th { font-size: 11px; position: static; padding: 4px 6px; }
+.member-table td { padding: 5px 6px; font-family: var(--mono); }
+.member-table td:first-child { font-family: inherit; font-weight: 600; }
+.member-table td.bad { color: var(--bad); }
+.health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.chip.warnc { color: #fff; background: var(--warn); border-color: var(--warn); }
+.member-pick { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+.member-pick label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.member-pick label.disabled { opacity: .5; cursor: default; }
+.member-pick .note { margin-left: auto; font-size: 11px; color: var(--muted); }
 /* confirmation dialog */
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .45); display: grid; place-items: center; padding: 16px; }
 .modal { width: min(440px, 100%); box-shadow: 0 10px 40px rgba(0, 0, 0, .35); }
@@ -279,14 +310,22 @@ td .num { width: 90px; padding: 3px 6px; }
 
 <div class="layout" id="consoleView" hidden>
   <aside>
+    <div class="side-head"><span>Groups</span><button class="btn small" id="newGroupBtn" title="Drive several servos as one">+ New group</button></div>
+    <div class="servo-list" id="groupList"></div>
+    <div class="side-head"><span>Servos</span></div>
     <div class="servo-list" id="servoList"><div class="empty">No servos yet</div></div>
   </aside>
 
   <main class="main" id="main" hidden>
     <section class="card servo-card">
-      <h2><span id="selTitle" class="sel-title">Servo –</span>
+      <h2><input type="color" id="colorPick" class="swatch" title="Servo color (saved to config.toml)">
+        <span id="selTitle" class="sel-title">Servo –</span>
+        <span id="groupChips" class="member-chips" hidden></span>
         <input type="text" id="nameEdit" class="name-edit" maxlength="40" placeholder="Name, e.g. Left" hidden>
         <button class="icon-btn" id="editNameBtn" title="Rename (saved to config.toml)" aria-label="Rename servo">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.1 1.9a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="icon-btn" id="editGroupBtn" title="Edit group" aria-label="Edit group" hidden>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.1 1.9a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
         </button>
         <label class="switch head-switch" title="For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo."><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored</span></label>
@@ -297,7 +336,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <path class="limit" id="limitArc"/>
           <g id="ticks"></g>
           <circle class="goal" id="goalMark" r="6"/>
-          <line class="needle" id="needle" x1="120" y1="120" x2="120" y2="30"/>
+          <g id="needles"></g>
           <circle class="hub" cx="120" cy="120" r="7"/>
           <rect class="plate" x="72" y="142" width="96" height="44" rx="8"/>
           <text class="readout" x="120" y="160" id="dialDeg">–</text>
@@ -313,6 +352,10 @@ td .num { width: 90px; padding: 3px 6px; }
             <div class="tile"><div class="k">Temperature</div><div class="v" id="tTemp">–</div></div>
           </div>
           <div class="chips" id="chips"></div>
+          <table class="member-table" id="memberTable" hidden>
+            <thead><tr><th></th><th>Pos</th><th>Speed</th><th>Load</th><th>mA</th><th>°C</th><th></th></tr></thead>
+            <tbody id="memberRows"></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -388,7 +431,7 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
     </section>
 
-    <section class="card">
+    <section class="card servo-only" id="setupCard">
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
@@ -413,7 +456,37 @@ td .num { width: 90px; padding: 3px 6px; }
     </div>
 
     <div class="col">
-    <section class="card">
+    <section class="card group-only" id="healthCard" hidden>
+      <h2>Group health <span class="spacer"></span><span id="healthBadge" class="chip">–</span></h2>
+      <div class="card-body">
+        <div class="health-grid">
+          <div class="tile"><div class="k">Spread</div><div class="v" id="hSpread">–</div></div>
+          <div class="tile"><div class="k">Opposing load</div><div class="v" id="hFight">–</div></div>
+        </div>
+        <p class="hint" id="hProblem"></p>
+        <hr class="sep">
+        <div class="field"><label>Max spread</label><input type="range" id="gSpread" min="1" max="200" value="20"><input class="num" type="number" id="gSpreadNum" value="20"></div>
+        <div class="field"><label>Max opposing load %</label><input type="range" id="gFight" min="5" max="100" value="30"><input class="num" type="number" id="gFightNum" value="30"></div>
+        <div class="row">
+          <span>When members fight</span>
+          <select id="gOnFight" class="num" style="width:auto;font-family:inherit">
+            <option value="warn">Warn only</option>
+            <option value="torque-off">Turn torque off</option>
+          </select>
+          <span class="spacer"></span>
+          <button class="btn" id="gSaveLimits">Save limits</button>
+        </div>
+        <p class="hint">Spread is the largest difference between the members' positions. Members "fight" when one pushes one way and another pushes back, which strains a shared axis. Turning torque off releases the whole group, so make sure the load can't fall.</p>
+        <hr class="sep">
+        <div class="row">
+          <button class="btn" id="gAlign" title="Move every member slowly to the leader's position">Align to leader</button>
+          <button class="btn" id="gCopyTuning" title="Copy PID, dead zones and protection from the leader to the other members (saved)">Copy tuning from leader</button>
+        </div>
+        <p class="hint">Align before turning Torque Lock on if the members were moved by hand. For members that should agree exactly, set the same center pose on each first (servo → Setup → Set current position as center).</p>
+      </div>
+    </section>
+
+    <section class="card servo-only" id="tuningCard">
       <h2>Tuning <span class="spacer"></span>
         <select id="tunePreset" title="Preset matching the values shown; pick one to load it" class="num" style="width:auto;text-transform:none;letter-spacing:0;font-weight:400;font-family:inherit">
           <option value="custom" disabled>Custom</option>
@@ -437,7 +510,7 @@ td .num { width: 90px; padding: 3px 6px; }
     </section>
     </div>
 
-    <section class="card span2">
+    <section class="card span2 servo-only" id="memCard">
       <h2>Memory table</h2>
       <div class="table-wrap">
         <table>
@@ -461,6 +534,31 @@ td .num { width: 90px; padding: 3px 6px; }
       <div class="row" style="justify-content:flex-end;margin-top:16px">
         <button class="btn" id="askCancel">Cancel</button>
         <button class="btn primary" id="askOk">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="groupModal" hidden>
+  <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
+    <h2 id="groupModalTitle">New group</h2>
+    <div class="card-body">
+      <div class="row" style="margin-top:0">
+        <span>Name</span>
+        <input type="text" id="gName" class="num" maxlength="40" placeholder="e.g. Pitch" style="flex:1;font-family:inherit">
+      </div>
+      <p class="hint" style="margin-bottom:6px">Members (one group per servo). The leader is the reference for Align.</p>
+      <div id="gMembers" class="member-pick"></div>
+      <div class="row">
+        <span>Leader</span>
+        <select id="gLeader" class="num" style="width:auto;font-family:inherit"></select>
+      </div>
+      <div class="err" id="gErr"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn danger" id="gDelete" hidden>Delete group</button>
+        <span class="spacer"></span>
+        <button class="btn" id="gCancel">Cancel</button>
+        <button class="btn primary" id="gSave">Save</button>
       </div>
     </div>
   </div>
@@ -505,6 +603,40 @@ function send(type, payload = {}) {
   });
 }
 
+// ---------------------------------------------------------------- colors & groups
+// Each servo keeps one color everywhere (list, dial needle, chart line, group
+// rows): the palette color for its ID unless config.toml sets Color.
+const PALETTE = ["#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#86bcb6"];
+function colorOf(id) { return (state.colors || {})[id] || PALETTE[(((id - 1) % PALETTE.length) + PALETTE.length) % PALETTE.length]; }
+function groupOf(id) { return (state.groups || []).find((g) => g.members.includes(id)); }
+function curGroup() { return state.selGroup ? (state.groups || []).find((g) => g.key === state.selGroup) || null : null; }
+// members lists the servos shown in the console: the group's, or the selected one.
+function members() { const g = curGroup(); return g ? g.members : state.selected === null ? [] : [state.selected]; }
+
+// ctl sends a Control-card command to the selected group, or to the selected
+// servo. Moving a grouped servo on its own asks first (once per servo).
+const MOTION = new Set(["move", "step", "wheel", "pwm"]);
+state.soloOk = new Set();
+async function ctl(type, payload = {}, msg) {
+  const g = curGroup();
+  if (g) {
+    try {
+      await send(type, { group: g.key, id: g.members[0], ...payload });
+      if (msg) log(`${g.name}: ${msg}`);
+      return true;
+    } catch (e) {
+      log(`${g.name}: ${type}: ${e.message}`, "error");
+      return false;
+    }
+  }
+  const og = groupOf(state.selected);
+  if (og && MOTION.has(type) && !state.soloOk.has(state.selected)) {
+    if (!await ask(`Servo ${state.selected} belongs to group “${og.name}”. Moving it on its own may strain a shared axis.\n\nMove it anyway? This window won't ask again for this servo.`, "Move alone")) return false;
+    state.soloOk.add(state.selected);
+  }
+  return cmd(type, payload, msg);
+}
+
 // cmd sends a command for the selected servo and logs failures.
 async function cmd(type, payload = {}, msg) {
   try {
@@ -538,23 +670,47 @@ function onMessage(m) {
 function setServos(ids) {
   if (ids.length === state.ids.length && ids.every((id, i) => id === state.ids[i])) return;
   state.ids = ids;
-  if (!ids.includes(state.selected)) state.selected = ids.length ? ids[0] : null;
   renderList();
+  if (state.selGroup) return;
+  if (!ids.includes(state.selected)) state.selected = ids.length ? ids[0] : null;
   $("main").hidden = state.selected === null;
   if (state.selected !== null) selectServo(state.selected);
 }
 
 function renderList() {
+  const glist = $("groupList");
+  glist.innerHTML = "";
+  for (const g of state.groups || []) {
+    const b = document.createElement("button");
+    b.className = "servo-item group-item" + (g.key === state.selGroup ? " active" : "");
+    b.id = "gitem-" + g.key;
+    b.innerHTML = `<div class="row1"><span class="dot"></span><span class="label"></span></div><div class="members"></div><div class="row2">–</div>`;
+    b.querySelector(".label").textContent = g.name;
+    b.querySelector(".members").innerHTML = g.members.map((id) =>
+      `<span class="mchip"><span class="cdot" style="--c:${colorOf(id)}"></span>#${id}</span>`).join("");
+    b.onclick = () => selectGroup(g.key);
+    glist.appendChild(b);
+  }
+
   const list = $("servoList");
   if (!state.ids.length) { list.innerHTML = '<div class="empty">No servos found.<br>Check power and wiring, then scan.</div>'; return; }
   list.innerHTML = "";
   for (const id of state.ids) {
     const b = document.createElement("button");
-    b.className = "servo-item" + (id === state.selected ? " active" : "");
+    b.className = "servo-item" + (id === state.selected && !state.selGroup ? " active" : "");
     b.id = "item-" + id;
+    b.style.setProperty("--c", colorOf(id));
     b.innerHTML = `<div class="row1"><span class="dot"></span><span class="label"></span></div><div class="row2">–</div>`;
+    const g = groupOf(id);
+    if (g) {
+      const badge = document.createElement("span");
+      badge.className = "grp";
+      badge.textContent = "in " + g.name;
+      b.querySelector(".row1").appendChild(badge);
+    }
     b.onclick = () => selectServo(id);
     list.appendChild(b);
+    if (state.fb[id]) updateListItem(id, state.fb[id]);
   }
   renderNames();
 }
@@ -572,7 +728,25 @@ function renderNames() {
     row1.dataset.mirrored = state.mirrored?.has(id) ? "1" : "";
     row1.querySelector(".label").textContent = servoLabel(id, `ID ${id}`);
   }
-  $("selTitle").textContent = state.selected === null ? "Servo –" : servoLabel(state.selected, `Servo ${state.selected}`);
+  const g = curGroup();
+  if (g) {
+    $("selTitle").textContent = g.name;
+    $("groupChips").innerHTML = g.members.map((id) =>
+      `<span class="mchip"><span class="cdot" style="--c:${colorOf(id)}"></span>${escapeHTML(servoLabel(id, "#" + id))}${state.mirrored?.has(id) ? " ↔" : ""}</span>`).join("");
+  } else {
+    $("selTitle").textContent = state.selected === null ? "Servo –" : servoLabel(state.selected, `Servo ${state.selected}`);
+    if (state.selected !== null && document.activeElement !== $("colorPick")) $("colorPick").value = colorOf(state.selected);
+  }
+}
+
+function escapeHTML(t) { return String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+function updateGroupItem(g) {
+  const el = $("gitem-" + g.key);
+  if (!el) return;
+  const h = state.health?.[g.key];
+  el.querySelector(".dot").className = "dot " + (!h ? "" : h.tripped || h.fighting ? "bad" : h.problem ? "warn" : "ok");
+  el.querySelector(".row2").textContent = !h ? "–" : h.tripped ? "torque off (fight)" : h.fighting ? "fighting!" : `spread ${h.spread} steps`;
 }
 
 function updateListItem(id, f) {
@@ -584,9 +758,42 @@ function updateListItem(id, f) {
     : `${(f.position * DEG).toFixed(1)}° · ${f.voltage.toFixed(1)}V · ${f.temperature}°C`;
 }
 
+function selectGroup(key) {
+  const g = (state.groups || []).find((x) => x.key === key);
+  if (!g) return;
+  state.selGroup = key;
+  state.selected = g.members[0]; // the leader drives the Control card
+  document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "gitem-" + key));
+  stopNameEdit();
+  applyMode();
+  renderNames();
+  renderHealthSettings();
+  $("main").hidden = false;
+  loadConfig(true);
+}
+
+// applyMode shows the group console or the single-servo console.
+function applyMode() {
+  const grp = !!state.selGroup;
+  document.querySelectorAll(".servo-only").forEach((el) => (el.hidden = grp));
+  document.querySelectorAll(".group-only").forEach((el) => (el.hidden = !grp));
+  document.querySelector(".servo-card .tiles").hidden = grp;
+  $("chips").hidden = grp;
+  $("memberTable").hidden = !grp;
+  document.querySelector(".servo-card").classList.toggle("group", grp);
+  $("groupChips").hidden = !grp;
+  $("editGroupBtn").hidden = !grp;
+  $("editNameBtn").hidden = grp;
+  $("colorPick").hidden = grp;
+  $("mirrored").closest("label").hidden = grp;
+  buildNeedles();
+}
+
 function selectServo(id) {
+  state.selGroup = null;
   state.selected = id;
   document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "item-" + id));
+  applyMode();
   stopNameEdit();
   renderNames();
   $("newId").value = "";
@@ -597,7 +804,9 @@ function selectServo(id) {
 
 async function loadConfig(syncControls) {
   state.syncControls = syncControls;
-  await cmd("config");
+  for (const id of members()) {
+    try { await send("config", { id }); } catch (e) { log(`config ${id}: ${e.message}`, "error"); }
+  }
 }
 
 // ---------------------------------------------------------------- telemetry
@@ -606,6 +815,8 @@ setInterval(() => { $("rate").textContent = `${frameCount} Hz`; frameCount = 0; 
 
 function onFeedback(m) {
   frameCount++;
+  state.health = m.groups || {};
+  for (const g of state.groups || []) updateGroupItem(g);
   for (const [k, f] of Object.entries(m.servos)) {
     const id = Number(k);
     state.fb[id] = f;
@@ -627,6 +838,7 @@ function scheduleRender() {
 }
 
 function renderSelected() {
+  if (state.selGroup) return renderGroup();
   const f = state.fb[state.selected];
   if (!f) return;
   if (f.error) {
@@ -647,9 +859,51 @@ function renderSelected() {
   chips += `<span class="chip" title="A RegWrite is waiting for Action" style="visibility:${f.regWritePending ? "visible" : "hidden"}">pending</span>`;
   $("chips").innerHTML = chips;
 
-  setNeedle(deg);
+  setNeedle(state.selected, deg);
   $("dialDeg").textContent = `${deg.toFixed(1)}°`;
   $("dialSteps").textContent = `${f.position} steps`;
+}
+
+function renderGroup() {
+  const g = curGroup();
+  if (!g) return;
+  const rows = g.members.map((id) => {
+    const f = state.fb[id];
+    const label = `<span class="cdot" style="--c:${colorOf(id)}"></span> ${escapeHTML(servoLabel(id, "#" + id))}${state.mirrored?.has(id) ? " ↔" : ""}`;
+    if (!f || f.error) return `<tr><td>${label}</td><td class="bad" colspan="6">no reply</td></tr>`;
+    setNeedle(id, f.position * DEG);
+    const st = f.status ? `<td class="bad" title="${f.statusText}">fault</td>` : `<td>${f.moving ? "moving" : "ok"}</td>`;
+    return `<tr><td>${label}</td><td title="${f.position} steps">${(f.position * DEG).toFixed(1)}°</td><td>${f.speed}</td>` +
+      `<td>${f.load.toFixed(1)}%</td><td>${f.current.toFixed(0)}</td><td title="${f.voltage.toFixed(1)} V">${f.temperature}</td>${st}</tr>`;
+  });
+  $("memberRows").innerHTML = rows.join("");
+
+  const lead = state.fb[g.members[0]], h = state.health?.[g.key];
+  $("dialDeg").textContent = lead && !lead.error ? `${(lead.position * DEG).toFixed(1)}°` : "–";
+  $("dialSteps").textContent = h ? `spread ${h.spread} st` : "–";
+  renderHealth(g, h);
+}
+
+function renderHealth(g, h) {
+  const badge = $("healthBadge");
+  if (!h) { badge.textContent = "–"; badge.className = "chip"; return; }
+  badge.textContent = h.tripped ? "torque cut" : h.fighting ? "fighting" : h.problem ? "check" : "ok";
+  badge.className = "chip " + (h.tripped || h.fighting ? "on" : h.problem ? "warnc" : "okc");
+  $("hSpread").innerHTML = `${h.spread} <small>steps · ${(h.spread * DEG).toFixed(1)}°</small>`;
+  const loads = g.members.map((id) => state.fb[id]).filter((f) => f && !f.error).map((f) => f.load);
+  const lo = Math.min(...loads), hi = Math.max(...loads);
+  $("hFight").innerHTML = loads.length > 1 && lo < 0 && hi > 0 ? `${Math.min(-lo, hi).toFixed(1)} <small>%</small>` : `0 <small>%</small>`;
+  $("hProblem").textContent = h.tripped ? "Fight protection switched torque off. Align the members (or recalibrate their centers), then turn Torque Lock on again."
+    : h.problem ? h.problem[0].toUpperCase() + h.problem.slice(1) + "." : "Members agree.";
+}
+
+function renderHealthSettings() {
+  const g = curGroup();
+  if (!g) return;
+  const busy = (id) => document.activeElement === $(id) || document.activeElement === $(id + "Num");
+  if (!busy("gSpread")) setPair("gSpread", g.maxSpread);
+  if (!busy("gFight")) setPair("gFight", g.maxFightLoad);
+  if (document.activeElement !== $("gOnFight")) $("gOnFight").value = g.onFight;
 }
 
 // ---------------------------------------------------------------- dial
@@ -668,9 +922,17 @@ function polar(deg, r) { const a = (deg - 90) * Math.PI / 180; return [C + r * M
   g.innerHTML = s;
 })();
 
-function setNeedle(deg) {
+// One needle per shown servo, in that servo's color.
+function buildNeedles() {
+  $("needles").innerHTML = members().map((id) =>
+    `<line class="needle" data-id="${id}" x1="120" y1="120" x2="120" y2="120" style="stroke:${colorOf(id)}"/>`).join("");
+}
+
+function setNeedle(id, deg) {
+  const el = $("needles").querySelector(`[data-id="${id}"]`);
+  if (!el) return;
   const [x, y] = polar(deg, R - 4);
-  $("needle").setAttribute("x2", x); $("needle").setAttribute("y2", y);
+  el.setAttribute("x2", x); el.setAttribute("y2", y);
 }
 
 function setGoalMark(steps) {
@@ -722,12 +984,14 @@ function drawChart() {
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  const data = state.hist[state.selected] || [];
+  const series = members().map((id) => ({ id, data: state.hist[id] || [], color: colorOf(id) }));
   const key = state.chartKey;
   const padL = 64, padR = 10, padT = 10, padB = 22;
-  const now = data.length ? data[data.length - 1].t : Date.now();
+  let now = 0;
+  for (const se of series) if (se.data.length) now = Math.max(now, se.data[se.data.length - 1].t);
+  if (!now) now = Date.now();
   let lo = Infinity, hi = -Infinity;
-  for (const p of data) { lo = Math.min(lo, p[key]); hi = Math.max(hi, p[key]); }
+  for (const se of series) for (const p of se.data) { lo = Math.min(lo, p[key]); hi = Math.max(hi, p[key]); }
   if (!isFinite(lo)) { lo = 0; hi = 1; }
   if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
   const span = hi - lo; lo -= span * 0.08; hi += span * 0.08;
@@ -749,10 +1013,23 @@ function drawChart() {
   ctx.save(); ctx.translate(10, padT + (h - padT - padB) / 2); ctx.rotate(-Math.PI / 2);
   ctx.textBaseline = "middle"; ctx.fillText(UNITS[key], 0, 0); ctx.restore();
 
-  ctx.strokeStyle = cssVar("--accent"); ctx.lineWidth = 2; ctx.lineJoin = "round";
-  ctx.beginPath();
-  data.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p[key])) : ctx.moveTo(X(p.t), Y(p[key]))));
-  ctx.stroke();
+  ctx.lineWidth = 2; ctx.lineJoin = "round";
+  for (const se of series) {
+    ctx.strokeStyle = se.color;
+    ctx.beginPath();
+    se.data.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p[key])) : ctx.moveTo(X(p.t), Y(p[key]))));
+    ctx.stroke();
+  }
+  if (series.length > 1) { // legend
+    ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = `11px ${cssVar("--mono")}`;
+    let x = padL + 8;
+    for (const se of series) {
+      const label = servoLabel(se.id, "#" + se.id);
+      ctx.fillStyle = se.color; ctx.fillRect(x, padT + 4, 10, 3);
+      ctx.fillStyle = cssVar("--text"); ctx.fillText(label, x + 14, padT + 6);
+      x += 24 + ctx.measureText(label).width;
+    }
+  }
 }
 window.addEventListener("resize", drawChart);
 new ResizeObserver(() => drawChart()).observe($("chart").parentElement);
@@ -763,9 +1040,9 @@ function isMultiTurn(c) { return c.minAngleLimit === 0 && c.maxAngleLimit === 0;
 function onConfig(m) {
   const c = m.config;
   state.cfg[m.id] = c;
+  if (members().includes(m.id)) updateTorqueBox();
   if (m.id !== state.selected) return;
   $("selInfo").textContent = `servo v${c.servoMajor}.${c.servoMinor} · fw ${c.firmwareMajor}.${c.firmwareMinor} · ${c.baudRate === 0 ? "1 Mbps" : "baud idx " + c.baudRate}`;
-  $("torque").checked = c.torqueEnabled;
   $("multiturn").checked = isMultiTurn(c);
   setMode(c.mode);
   setLimitArc(c.minAngleLimit, c.maxAngleLimit);
@@ -787,6 +1064,13 @@ function onConfig(m) {
   // Don't rebuild the table under the user's cursor; it refreshes on the next update.
   if (!$("regs").contains(document.activeElement)) renderRegisters(m.registers);
   updateTuning(m.id, m.registers, m.tried);
+}
+
+// The Torque Lock box is on when every shown servo holds torque, mixed otherwise.
+function updateTorqueBox() {
+  const t = members().map((id) => state.cfg[id]?.torqueEnabled).filter((v) => v !== undefined);
+  $("torque").checked = t.length > 0 && t.every(Boolean);
+  $("torque").indeterminate = t.some(Boolean) && !t.every(Boolean);
 }
 
 function renderRegisters(regs) {
@@ -851,7 +1135,9 @@ $("targetDegNum").addEventListener("keydown", (e) => {
 });
 bindPair("speed");
 bindPair("acc");
-bindPair("tlimit", (ev) => { if (ev === "change" || ev === "input") debounce("tl", () => cmd("torqueLimit", { percent: Number($("tlimit").value) }), 150); });
+bindPair("tlimit", (ev) => { if (ev === "change" || ev === "input") debounce("tl", () => ctl("torqueLimit", { percent: Number($("tlimit").value) }), 150); });
+bindPair("gSpread");
+bindPair("gFight");
 bindPair("wheel");
 bindPair("pwm");
 bindPair("stepRel");
@@ -863,12 +1149,12 @@ function motion() { return { speed: Number($("speed").value), acc: Number($("acc
 
 async function move(quiet) {
   const position = Number($("target").value);
-  await cmd("move", { position, ...motion() }, quiet ? null : `move → ${position} (${(position * DEG).toFixed(1)}°)`);
+  await ctl("move", { position, ...motion() }, quiet ? null : `move → ${position} (${(position * DEG).toFixed(1)}°)`);
 }
 
 $("moveBtn").onclick = () => move();
 $("stopBtn").onclick = async () => {
-  if (await cmd("stop", {}, "stop")) {
+  if (await ctl("stop", {}, "stop")) {
     const p = state.fb[state.selected]?.position;
     if (p !== undefined) setTarget(p);
   }
@@ -880,7 +1166,7 @@ document.querySelectorAll("[data-jog]").forEach((b) => (b.onclick = () => {
   move();
 }));
 
-$("torque").onchange = (e) => cmd("torque", { on: e.target.checked }, `torque lock ${e.target.checked ? "on" : "off"}`);
+$("torque").onchange = (e) => ctl("torque", { on: e.target.checked }, `torque lock ${e.target.checked ? "on" : "off"}`);
 
 function setMode(mode) {
   document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("active", Number(b.dataset.mode) === mode));
@@ -889,14 +1175,14 @@ function setMode(mode) {
 $("modeSeg").addEventListener("click", async (e) => {
   const mode = Number(e.target.dataset.mode);
   if (e.target.dataset.mode === undefined) return;
-  if (await cmd("mode", { mode }, `mode → ${e.target.textContent}`)) { setMode(mode); loadConfig(true); }
+  if (await ctl("mode", { mode }, `mode → ${e.target.textContent}`)) { setMode(mode); loadConfig(true); }
 });
 
-$("wheelBtn").onclick = () => cmd("wheel", { speed: Number($("wheel").value), acc: Number($("acc").value) }, `wheel speed ${$("wheel").value}`);
-$("wheelStop").onclick = () => { setPair("wheel", 0); cmd("wheel", { speed: 0, acc: Number($("acc").value) }, "wheel stop"); };
-$("pwmBtn").onclick = () => cmd("pwm", { duty: Number($("pwm").value) }, `pwm ${$("pwm").value}`);
-$("pwmStop").onclick = () => { setPair("pwm", 0); cmd("pwm", { duty: 0 }, "pwm stop"); };
-$("stepBtn").onclick = () => cmd("move", { position: Number($("stepRel").value), ...motion() }, `step ${$("stepRel").value}`);
+$("wheelBtn").onclick = () => ctl("wheel", { speed: Number($("wheel").value), acc: Number($("acc").value) }, `wheel speed ${$("wheel").value}`);
+$("wheelStop").onclick = () => { setPair("wheel", 0); ctl("wheel", { speed: 0, acc: Number($("acc").value) }, "wheel stop"); };
+$("pwmBtn").onclick = () => ctl("pwm", { duty: Number($("pwm").value) }, `pwm ${$("pwm").value}`);
+$("pwmStop").onclick = () => { setPair("pwm", 0); ctl("pwm", { duty: 0 }, "pwm stop"); };
+$("stepBtn").onclick = () => ctl("step", { position: Number($("stepRel").value), ...motion() }, `step ${$("stepRel").value}`);
 
 // Inline rename in the servo card header.
 function startNameEdit() {
@@ -1122,8 +1408,24 @@ function onState(m) {
   setServos(m.ids);
   state.mirrored = new Set(m.mirrored || []);
   state.names = m.names || {};
+  state.colors = m.colors || {};
+  state.groups = m.groups || [];
   $("mirrored").checked = state.mirrored.has(state.selected);
-  renderNames();
+  // A group this window just created: open it.
+  const created = state.groups.find((g) => g.members.join() === state.pendingGroup);
+  if (state.selGroup && !curGroup()) { // deleted (maybe in another window)
+    state.selGroup = null;
+    if (state.ids.length) selectServo(state.ids.includes(state.selected) ? state.selected : state.ids[0]);
+  }
+  renderList();
+  if (created) {
+    state.pendingGroup = null;
+    selectGroup(created.key);
+  } else if (state.selected !== null && m.connected) {
+    applyMode(); // refresh in place: needles, member chips, health limits
+    renderNames();
+    renderHealthSettings();
+  }
   renderView();
 }
 
@@ -1242,6 +1544,95 @@ const toBoard = async () => {
 };
 $("toBoardBtn").onclick = toBoard;
 $("backToBoard").onclick = toBoard;
+
+// ---------------------------------------------------------------- group health & dialog
+$("gSaveLimits").onclick = async () => {
+  const g = curGroup();
+  if (!g) return;
+  try {
+    await send("groupSave", { group: g.key, name: g.name, members: g.members, maxSpread: Number($("gSpread").value),
+      maxFightLoad: Number($("gFight").value), onFight: $("gOnFight").value });
+    log(`${g.name}: fight limits saved`);
+  } catch (e) { log(`group: ${e.message}`, "error"); }
+};
+$("gAlign").onclick = async () => {
+  const g = curGroup();
+  if (!g || !await ask(`Move every member of “${g.name}” slowly to the position of its leader (#${g.members[0]})?`, "Align")) return;
+  ctl("align", { speed: 200, acc: 10 }, "aligned to leader");
+};
+$("gCopyTuning").onclick = async () => {
+  const g = curGroup();
+  if (!g || !await ask(`Copy tuning (PID, dead zones, start force, torque and protection) from #${g.members[0]} to the other members of “${g.name}” and save it on them?`, "Copy & save")) return;
+  ctl("copyTuning", { save: true }, "tuning copied from leader");
+};
+
+let editingGroup = null; // key of the group being edited, "" for a new one
+function openGroupDialog(key) {
+  editingGroup = key || "";
+  const g = key ? (state.groups || []).find((x) => x.key === key) : null;
+  $("groupModalTitle").textContent = g ? `Edit group ${g.name}` : "New group";
+  $("gName").value = g ? g.name : "";
+  $("gErr").textContent = "";
+  $("gDelete").hidden = !g;
+  const ids = [...new Set([...state.ids, ...(g ? g.members : [])])].sort((a, b) => a - b);
+  $("gMembers").innerHTML = "";
+  for (const id of ids) {
+    const other = groupOf(id);
+    const taken = other && other.key !== key;
+    const row = document.createElement("label");
+    row.className = taken ? "disabled" : "";
+    row.innerHTML = `<input type="checkbox" value="${id}" ${g && g.members.includes(id) ? "checked" : ""} ${taken ? "disabled" : ""}>` +
+      `<span class="cdot" style="--c:${colorOf(id)}"></span><span></span><span class="note"></span>`;
+    row.children[2].textContent = servoLabel(id, "ID " + id) + (state.mirrored?.has(id) ? " ↔" : "");
+    row.children[3].textContent = taken ? "in " + other.name : state.ids.includes(id) ? "" : "not found by scan";
+    row.querySelector("input").onchange = () => fillLeaders();
+    $("gMembers").appendChild(row);
+  }
+  fillLeaders(g ? g.members[0] : null);
+  $("groupModal").hidden = false;
+  $("gName").focus();
+}
+function checkedMembers() { return [...$("gMembers").querySelectorAll("input:checked")].map((i) => Number(i.value)); }
+function fillLeaders(want) {
+  const sel = $("gLeader"), keep = want ?? Number(sel.value);
+  const ids = checkedMembers();
+  sel.innerHTML = ids.map((id) => `<option value="${id}">${escapeHTML(servoLabel(id, "#" + id))}</option>`).join("");
+  if (ids.includes(keep)) sel.value = keep;
+}
+function closeGroupDialog() { $("groupModal").hidden = true; editingGroup = null; }
+$("newGroupBtn").onclick = () => openGroupDialog("");
+$("editGroupBtn").onclick = () => openGroupDialog(state.selGroup);
+$("gCancel").onclick = closeGroupDialog;
+$("groupModal").addEventListener("keydown", (e) => { if (e.key === "Escape") closeGroupDialog(); });
+$("gSave").onclick = async () => {
+  const ids = checkedMembers(), leader = Number($("gLeader").value);
+  const name = $("gName").value.trim();
+  if (!name) return ($("gErr").textContent = "Give the group a name.");
+  if (ids.length < 2) return ($("gErr").textContent = "Pick at least 2 servos.");
+  const memberList = [leader, ...ids.filter((id) => id !== leader)];
+  const old = editingGroup ? curGroupBy(editingGroup) : null;
+  try {
+    if (!editingGroup) state.pendingGroup = memberList.join();
+    await send("groupSave", { group: editingGroup, name, members: memberList,
+      maxSpread: old ? old.maxSpread : 0, maxFightLoad: old ? old.maxFightLoad : 0, onFight: old ? old.onFight : "warn" });
+    closeGroupDialog();
+  } catch (e) { state.pendingGroup = null; $("gErr").textContent = e.message; }
+};
+function curGroupBy(key) { return (state.groups || []).find((g) => g.key === key); }
+$("gDelete").onclick = async () => {
+  const g = curGroupBy(editingGroup);
+  if (!g || !await ask(`Delete group “${g.name}”? The servos stay as they are.`, "Delete")) return;
+  try {
+    await send("groupDelete", { group: g.key });
+    closeGroupDialog();
+    if (state.selGroup === g.key) selectServo(g.members[0]);
+  } catch (e) { $("gErr").textContent = e.message; }
+};
+
+$("colorPick").addEventListener("change", (e) => {
+  if (state.selGroup || state.selected === null) return;
+  cmd("color", { color: e.target.value }, `servo ${state.selected} color ${e.target.value}`);
+});
 
 // ---------------------------------------------------------------- confirmation dialog
 // In-page replacement for window.confirm(), which some embedded browsers

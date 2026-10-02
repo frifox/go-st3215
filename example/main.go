@@ -134,6 +134,7 @@ type server struct {
 	cfg        *config // config.toml: names and mirrored state per ID
 	refresh    map[uint8]*pendingRefresh
 	tried      map[uint8]map[string]int // values applied with "Try" but not saved, per servo
+	fights     map[string]*fightState   // fight protection per group key
 	clients    map[*client]struct{}
 }
 
@@ -164,7 +165,7 @@ func (s *server) broadcast(msg any) {
 func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	mirrored, names := []int{}, map[string]string{}
+	mirrored, names, colors := []int{}, map[string]string{}, map[string]string{}
 	for id, sc := range s.cfg.all() {
 		if sc.Mirrored {
 			mirrored = append(mirrored, int(id))
@@ -172,10 +173,14 @@ func (s *server) stateMsg() stateMsg {
 		if sc.Name != "" {
 			names[strconv.Itoa(int(id))] = sc.Name
 		}
+		if sc.Color != "" {
+			colors[strconv.Itoa(int(id))] = sc.Color
+		}
 	}
 	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
-		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names}
+		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names,
+		Colors: colors, Groups: groupInfos(s.cfg.allGroups())}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -407,7 +412,9 @@ func (s *server) pollLoop(ctx context.Context) {
 			continue
 		}
 		states := map[string]servoState{}
+		var health map[string]groupHealth
 		err := s.withBus(func(bus *st3215.Bus) error {
+			defer func() { health = s.checkGroups(bus, states) }()
 			if s.noSync {
 				for _, id := range ids {
 					f, err := bus.Servo(id).Feedback()
@@ -424,7 +431,7 @@ func (s *server) pollLoop(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		s.broadcast(feedbackMsg{Type: "feedback", Time: time.Now().UnixMilli(), Servos: states})
+		s.broadcast(feedbackMsg{Type: "feedback", Time: time.Now().UnixMilli(), Servos: states, Groups: health})
 	}
 }
 
@@ -448,7 +455,9 @@ type stateMsg struct {
 	Scanned   bool              `json:"scanned"`
 	IDs       []int             `json:"ids"` // not []uint8: encoding/json would emit base64
 	Mirrored  []int             `json:"mirrored"`
-	Names     map[string]string `json:"names"` // servo ID -> name from config.toml
+	Names     map[string]string `json:"names"`  // servo ID -> name from config.toml
+	Colors    map[string]string `json:"colors"` // servo ID -> color override from config.toml
+	Groups    []groupInfo       `json:"groups"`
 }
 
 type portsMsg struct {
@@ -466,9 +475,10 @@ type scanProgressMsg struct {
 }
 
 type feedbackMsg struct {
-	Type   string                `json:"type"`
-	Time   int64                 `json:"time"`
-	Servos map[string]servoState `json:"servos"`
+	Type   string                 `json:"type"`
+	Time   int64                  `json:"time"`
+	Servos map[string]servoState  `json:"servos"`
+	Groups map[string]groupHealth `json:"groups"`
 }
 
 type logMsg struct {
@@ -532,7 +542,14 @@ type request struct {
 	Percent  float64    `json:"percent"`
 	Name     string     `json:"name"`   // for "rename"
 	Values   []regValue `json:"values"` // for "tune"
-	Save     bool       `json:"save"`   // for "tune": persist instead of until power-off
+	Save     bool       `json:"save"`   // for "tune"/"copyTuning": persist instead of until power-off
+	Color    string     `json:"color"`  // for "color"
+	// Groups: Group targets a command at a group; the rest is for "groupSave".
+	Group        string  `json:"group"`
+	Members      []int   `json:"members"`
+	MaxSpread    int     `json:"maxSpread"`
+	MaxFightLoad float64 `json:"maxFightLoad"`
+	OnFight      string  `json:"onFight"`
 }
 
 type regValue struct {
@@ -656,6 +673,12 @@ func changeNote(req request) string {
 		return fmt.Sprintf("tuning changed (%d value(s), %s)", len(req.Values), how)
 	case "mirror":
 		return fmt.Sprintf("mirrored %s", onOff(req.On))
+	case "step":
+		return fmt.Sprintf("step %d", req.Position)
+	case "align":
+		return "aligned to leader"
+	case "copyTuning":
+		return "tuning copied from leader"
 	}
 	return ""
 }
@@ -671,11 +694,21 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true,
+	"mirror": true, "setid": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
 	if !changesServo[req.Type] {
+		return
+	}
+	if req.Group != "" {
+		g, _ := s.cfg.group(req.Group)
+		if note := changeNote(req); note != "" {
+			s.broadcastExcept(c, logMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: group %s %s", g.Name, note)})
+		}
+		for _, id := range g.Members {
+			s.scheduleRefresh(id, c.id)
+		}
 		return
 	}
 	id := req.ID
@@ -847,6 +880,29 @@ func (s *server) exec(c *client, req request) error {
 		}
 		s.mu.Unlock()
 		return nil
+	case "color":
+		color, err := validColor(req.Color)
+		if err != nil {
+			return err
+		}
+		if err := s.cfg.update(req.ID, func(c *servoConfig) { c.Color = color }); err != nil {
+			return err
+		}
+		s.broadcastState()
+		return nil
+	case "groupSave":
+		return s.groupSave(req)
+	case "groupDelete":
+		g, _ := s.cfg.group(req.Group)
+		if err := s.cfg.deleteGroup(req.Group); err != nil {
+			return err
+		}
+		s.logf("info", "group %s deleted", g.Name)
+		s.broadcastState()
+		return nil
+	}
+	if req.Group != "" {
+		return s.withBus(func(bus *st3215.Bus) error { return s.groupCommand(bus, req) })
 	}
 	return s.withBus(func(bus *st3215.Bus) error { return s.servoCommand(c, bus, req) })
 }
@@ -861,6 +917,8 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.EnableTorque(req.On)
 	case "move":
 		return sv.MoveTo(req.Position, req.Speed, req.Acc)
+	case "step":
+		return sv.StepBy(req.Position, req.Speed, req.Acc)
 	case "stop":
 		return sv.Stop()
 	case "wheel":

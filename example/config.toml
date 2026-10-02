@@ -4,3 +4,6 @@
 [1]
 Name = "Right"
 Mirrored = true
+
+[2]
+Name = "Left"

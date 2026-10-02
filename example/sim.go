@@ -192,6 +192,10 @@ func (s *simServo) write(params []byte) {
 		return
 	}
 	copy(s.mem[addr:], data)
+	// Like the real ST3215, a new goal position switches torque on.
+	if addr <= 42 && addr+len(data) >= 44 {
+		s.mem[40] = 1
+	}
 	// Step mode: goal position is relative to the present position.
 	if s.mem[33] == 3 && addr <= 42 && addr+len(data) >= 44 {
 		rel := signMag(get16(s.mem[:], 42), 15)

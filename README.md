@@ -41,6 +41,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Other modes | `SetMode(ModeWheel/ModePWM/ModeStep)`, `SetWheelSpeed`, `SetPWM` |
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
 | Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |
+| Groups | `bus.Group(ids...)`: `MoveTo`, `EnableTorque`, `SetWheelSpeed`, `Align`, `CopyFromLeader`, `WaitForPosition`, `Feedback().Spread()` / `.Fighting()` (one packet per command) |
 | Monitoring | `Feedback` (position, speed, load, voltage, temperature, current, moving, status in one read), plus single getters |
 | Torque | `EnableTorque`, `SetTorqueLimit` (runtime), `SetMaxTorque` (persisted) |
 | Calibration | `CalibrateMiddle` (current position becomes 2048), `SetPositionOffset` |
@@ -76,6 +77,20 @@ Calibrate both servos so 2048 is the same mechanical pose (`CalibrateMiddle` in 
 `SetPositionOffset`), otherwise they track with a constant offset. The flag is kept on the
 `Bus` by ID (it follows `SetID`) and is not stored on the servo, so set it each time your
 program starts.
+
+## Servo groups
+
+`Group` drives several servos as one: each command is a single SYNC WRITE, so all members start
+at the same instant, and positions are logical, so mirrored members follow too.
+
+```go
+pitch := bus.Group(1, 2)               // leader first
+pitch.Align(200, 10)                   // bring members to the leader's position
+pitch.EnableTorque(true)
+pitch.MoveTo(1500, 1000, 30)
+fb, _ := pitch.WaitForPosition(ctx, 1500, st3215.WaitOptions{})
+if fb.Spread() > 20 || fb.Fighting(30) { /* members disagree on a shared axis */ }
+```
 
 ## Demo: web console
 
@@ -113,6 +128,18 @@ Name = "Left"
 [2]
 Name = "Right"
 Mirrored = true
+```
+
+**Groups** (sidebar → New group) drive their members together from one console: one needle and
+one chart line per servo (each servo keeps its own color everywhere), a row per member, and a Group
+health card with spread, opposing load, fight protection (warn, or cut torque), Align and Copy
+tuning. Groups and colors are stored in `config.toml`:
+
+```toml
+[group.pitch]
+Name = "Pitch"
+Members = [1, 2]        # leader first
+OnFight = "torque-off"  # default "warn"
 ```
 
 Several browser windows can be open at once: connection, scan, telemetry, names, mirrored state and
