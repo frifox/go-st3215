@@ -453,8 +453,12 @@ td .num { width: 90px; padding: 3px 6px; }
         <hr class="sep">
         <div class="row">
           <button class="btn" id="calibBtn">Set current position as center</button>
+          <span>or as</span>
+          <input class="num" type="number" id="posAsDeg" min="0" max="359.9" step="0.1" value="0" style="width:80px">
+          <span>°</span>
+          <button class="btn" id="posAsBtn">Set</button>
         </div>
-        <p class="hint">Writes the position offset so the current position reads 2048. Saved in EEPROM.</p>
+        <p class="hint" id="posAsHint">Writes the servo's position offset so the current position reads that angle. Saved on the servo.</p>
         <hr class="sep">
         <div class="row">
           <span>Change ID to</span>
@@ -706,6 +710,12 @@ function colorOf(id) { return (state.colors || {})[id] || PALETTE[(((id - 1) % P
 // Virtual zero: shown angle = physical angle - zero (config.toml "Zero").
 // Steps, the dial geometry and anything stored on the servo stay physical.
 function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
+// The dial is drawn in the servo's raw frame (reported position + its
+// PositionOffset), so changing the offset on the servo doesn't move the
+// needle, only the labels, just like the virtual zero.
+function offsetOf(id) { return state.cfg[id]?.positionOffset ?? 0; }
+function rawSteps(id, steps) { return steps + (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); }
+function labelZero(id) { return rawSteps(id, 0) * DEG + zeroOf(id); }
 function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
 function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
@@ -970,7 +980,7 @@ function renderSelected() {
   chips += `<span class="chip" title="A RegWrite is waiting for Action" style="visibility:${f.regWritePending ? "visible" : "hidden"}">pending</span>`;
   $("chips").innerHTML = chips;
 
-  setNeedle(state.selected, deg);
+  setNeedle(state.selected, rawSteps(state.selected, f.position) * DEG);
   $("dialDeg").textContent = fmtDeg(shown);
   $("dialSteps").textContent = `${f.position} steps`;
 }
@@ -982,7 +992,7 @@ function renderGroup() {
     const f = state.fb[id];
     const label = `<span class="cdot" style="--c:${colorOf(id)}"></span> ${escapeHTML(servoLabel(id, "#" + id))}${state.mirrored?.has(id) ? " ↔" : ""}`;
     if (!f || f.error) return `<tr><td>${label}</td><td class="bad" colspan="6">no reply</td></tr>`;
-    setNeedle(id, f.position * DEG);
+    setNeedle(id, rawSteps(id, f.position) * DEG);
     const st = f.status ? `<td class="bad" title="${f.statusText}">fault</td>` : `<td>${f.moving ? "moving" : "ok"}</td>`;
     return `<tr><td>${label}</td><td title="${f.position} steps">${fmtDeg(vdeg(id, f.position))}</td><td>${f.speed}</td>` +
       `<td>${f.load.toFixed(1)}%</td><td>${f.current.toFixed(0)}</td><td title="${f.voltage.toFixed(1)} V">${f.temperature}</td>${st}</tr>`;
@@ -1043,7 +1053,7 @@ buildTicks(0);
 
 // One needle per shown servo, in that servo's color.
 function buildNeedles() {
-  buildTicks(state.selected === null ? 0 : zeroOf(members()[0] ?? state.selected));
+  buildTicks(state.selected === null ? 0 : labelZero(members()[0] ?? state.selected));
   $("needles").innerHTML = members().map((id) =>
     `<line class="needle" data-id="${id}" x1="120" y1="120" x2="120" y2="120" style="stroke:${colorOf(id)}"/>`).join("");
 }
@@ -1056,14 +1066,14 @@ function setNeedle(id, deg) {
 }
 
 function setGoalMark(steps) {
-  const [x, y] = polar(steps * DEG, R + 4);
+  const [x, y] = polar(rawSteps(state.selected, steps) * DEG, R + 4);
   $("goalMark").setAttribute("cx", x); $("goalMark").setAttribute("cy", y);
 }
 
 function setLimitArc(min, max) {
   const el = $("limitArc");
   if (min === 0 && max === 0) { el.setAttribute("d", ""); return; }
-  const a0 = min * DEG, a1 = max * DEG;
+  const a0 = rawSteps(state.selected, min) * DEG, a1 = rawSteps(state.selected, max) * DEG;
   const [x0, y0] = polar(a0, R + 4), [x1, y1] = polar(a1, R + 4);
   el.setAttribute("d", `M ${x0} ${y0} A ${R + 4} ${R + 4} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`);
 }
@@ -1073,7 +1083,8 @@ $("dial").addEventListener("click", (e) => {
   const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
   let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
   if (deg < 0) deg += 360;
-  moveAngle(Math.round(deg / DEG) % STEPS);
+  const raw = Math.round(deg / DEG) - rawSteps(state.selected, 0); // dial frame -> servo steps
+  moveAngle(((raw % STEPS) + STEPS) % STEPS);
 });
 
 // ---------------------------------------------------------------- chart
@@ -1157,7 +1168,9 @@ function onConfig(m) {
   $("selInfo").textContent = `servo v${c.servoMajor}.${c.servoMinor} · fw ${c.firmwareMajor}.${c.firmwareMinor} · ${c.baudRate === 0 ? "1 Mbps" : "baud idx " + c.baudRate}`;
   $("multiturn").checked = isMultiTurn(c);
   setMode(c.mode);
+  buildTicks(labelZero(members()[0] ?? m.id)); // the offset may have changed
   setLimitArc(c.minAngleLimit, c.maxAngleLimit);
+  renderPosAsHint();
   const t = $("target");
   if (isMultiTurn(c)) { t.min = -30719; t.max = 30719; } else { t.min = c.minAngleLimit; t.max = c.maxAngleLimit; }
   // Sliders follow the servo when loading a servo or when another window
@@ -1356,10 +1369,7 @@ $("mirrored").onchange = async (e) => {
 $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
 };
-$("calibBtn").onclick = async () => {
-  if (!await ask("Make the current position read 2048 (center)? This is saved in EEPROM.")) return;
-  if (await cmd("calibrate", {}, "center calibrated")) loadConfig(true);
-};
+$("calibBtn").onclick = () => setPositionAs(180); // center = 2048 steps
 $("setIdBtn").onclick = async () => {
   const newId = Number($("newId").value);
   if ($("newId").value === "" || newId < 0 || newId > 253) return log("ID must be 0..253", "error");
@@ -1765,6 +1775,27 @@ $("colorPick").addEventListener("change", (e) => {
   if (state.selGroup || state.selected === null) return;
   cmd("color", { color: e.target.value }, `servo ${state.selected} color ${e.target.value}`);
 });
+
+// ---------------------------------------------------------------- servo-side zero
+function renderPosAsHint() {
+  const id = state.selected, off = offsetOf(id);
+  if (id === null || state.selGroup) return;
+  let t = `Writes the servo's position offset (now ${off} steps, ${(off * DEG).toFixed(1)}°) so the current position reads the given angle; center = 180°. Saved on the servo, so every app sees the same zero. The arm doesn't move; the dial labels and readouts change.`;
+  if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
+  if (zeroOf(id)) t += ` The virtual 0° (${zeroOf(id)}°) still applies on top in this console.`;
+  $("posAsHint").textContent = t;
+}
+async function setPositionAs(degrees) {
+  const id = state.selected;
+  if (!await ask(`Make servo ${id}'s current position read ${degrees}°?\n\nThis changes the position offset saved on the servo. The arm stays where it is.`, "Set")) return;
+  if (await cmd("positionAs", { degrees })) loadConfig(true);
+}
+$("posAsBtn").onclick = () => {
+  const d = Number($("posAsDeg").value);
+  if (!(d >= 0 && d < 360)) return log("Angle must be 0–359.9°", "error");
+  setPositionAs(Math.round(d * 10) / 10);
+};
+$("posAsDeg").addEventListener("keydown", (e) => { if (e.key === "Enter") $("posAsBtn").click(); });
 
 // ---------------------------------------------------------------- edit servo dialog
 let svID = null;

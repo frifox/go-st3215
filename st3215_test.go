@@ -469,3 +469,28 @@ func TestCircularDiff(t *testing.T) {
 		t.Fatal("spread across the seam", f.Spread())
 	}
 }
+
+func TestSetPositionAs(t *testing.T) {
+	for _, mirrored := range []bool{false, true} {
+		b, p := newTestBus(t, 1)
+		b.SetMirrored(1, mirrored)
+		m := p.servos[1].mem[:]
+		putU16(m[RegPositionOffset.Addr:], encodeSignMag(85, 11))
+		putU16(m[RegPresentPosition.Addr:], 1564) // physical reported
+		putU16(m[RegGoalPosition.Addr:], 1564)    // holding here
+		if err := b.Servo(1).SetPositionAs(0); err != nil {
+			t.Fatal(err)
+		}
+		off := RegPositionOffset.decode(m[RegPositionOffset.Addr:])
+		raw := 1564 + 85
+		// The physical reading for logical 0 is 0 (or 4096 mirrored, the same).
+		if CircularDiff(raw-off, 0) != 0 {
+			t.Fatalf("mirrored=%v: offset %d doesn't make here read 0", mirrored, off)
+		}
+		// The goal moved with the coordinates: still pointing at the same raw spot.
+		goal := RegGoalPosition.decode(m[RegGoalPosition.Addr:])
+		if CircularDiff(goal+off, raw) != 0 {
+			t.Fatalf("mirrored=%v: goal %d no longer at the arm (raw %d)", mirrored, goal, raw)
+		}
+	}
+}

@@ -51,7 +51,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Auto-tuning | `autotune.Run(ctx, autotune.ForServo(s) / ForGroup(g), opts)`: finds P, D, start force and dead zone by test moves with the real load |
 | Monitoring | `Feedback` (position, speed, load, voltage, temperature, current, moving, status in one read), plus single getters |
 | Torque | `EnableTorque`, `SetTorqueLimit` (runtime), `SetMaxTorque` (persisted) |
-| Calibration | `CalibrateMiddle` (current position becomes 2048), `SetPositionOffset` |
+| Calibration | `SetPositionAs(pos)` (current position reads `pos`; the servo's own zero, goal shifted so it doesn't move), `CalibrateMiddle` (= 2048), `SetPositionOffset` |
 | Configuration | `SetID`, `SetBaudRate`, `SetAngleLimits`, `SetVoltageLimits`, `SetMaxTemperature`, `SetProtection`, `SetPID`, `SetDeadZone`, `ReadConfig` |
 | Raw access | `Servo.Read(reg)` / `Servo.Write(reg, v)` for every register in `Registers`; `Bus.Read/Write/SyncRead/SyncWrite` |
 | Tuning trials | `Servo.WriteTemporary(reg, v)` applies EEPROM settings (PID, dead zone, protection...) until power-off without saving them |

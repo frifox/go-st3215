@@ -483,6 +483,50 @@ func (s *Servo) CalibrateMiddle() error {
 	})
 }
 
+// SetPositionAs makes the current position read pos (steps, 0..4095,
+// logical) from now on, by changing PositionOffset (persisted). This moves
+// the servo's own zero, e.g. pos = 0 makes "here" 0°; CalibrateMiddle is
+// SetPositionAs(2048). The goal is shifted by the same amount so a servo
+// holding torque doesn't move. In single-turn mode this also moves the
+// 0/4095 seam the servo can't cross to the new zero.
+//
+// Verified on hardware: reported position = raw position - PositionOffset.
+// The offset range is ±2047 steps, so one position (exactly half a turn
+// away) can only be reached to within one step.
+func (s *Servo) SetPositionAs(pos int) error {
+	off, err := s.Read(RegPositionOffset)
+	if err != nil {
+		return err
+	}
+	cur, err := s.Read(RegPresentPosition) // physical, within one turn
+	if err != nil {
+		return err
+	}
+	goal, err := s.Read(RegGoalPosition)
+	if err != nil {
+		return err
+	}
+	lo, hi, err := s.AngleLimits()
+	if err != nil {
+		return err
+	}
+	want := (mirrorPos(s.Mirrored(), pos)%StepsPerRev + StepsPerRev) % StepsPerRev // physical
+	newOff := CircularDiff(cur+off, want)                                          // raw - wanted reading
+	if newOff == -StepsPerRev/2 {
+		newOff = StepsPerRev/2 - 1 // -2048 isn't representable; one step off
+	}
+	delta := newOff - off
+	newGoal := goal - delta
+	if lo != 0 || hi != 0 { // single-turn goals live within one turn
+		newGoal = (newGoal%StepsPerRev + StepsPerRev) % StepsPerRev
+	}
+	if err := s.Write(RegPositionOffset, newOff); err != nil {
+		return err
+	}
+	_, err = s.bus.Write(s.id, RegGoalPosition.Addr, mustEncode(RegGoalPosition, newGoal))
+	return err
+}
+
 // SetMaxTorque sets the persisted torque ceiling in % (0..100), which is also
 // copied into TorqueLimit at power-up.
 func (s *Servo) SetMaxTorque(percent float64) error {

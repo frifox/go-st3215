@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -547,11 +548,12 @@ type request struct {
 	Register string     `json:"register"`
 	Value    int        `json:"value"`
 	Percent  float64    `json:"percent"`
-	Name     string     `json:"name"`   // for "rename"
-	Values   []regValue `json:"values"` // for "tune"
-	Save     bool       `json:"save"`   // for "tune"/"copyTuning": persist instead of until power-off
-	Color    string     `json:"color"`  // for "color" and "servoEdit"
-	Zero     float64    `json:"zero"`   // for "servoEdit": virtual 0° in degrees
+	Name     string     `json:"name"`    // for "rename"
+	Values   []regValue `json:"values"`  // for "tune"
+	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
+	Color    string     `json:"color"`   // for "color" and "servoEdit"
+	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
+	Degrees  float64    `json:"degrees"` // for "positionAs": what the current position should read
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -768,7 +770,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -1065,6 +1067,14 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetTorqueLimit(req.Percent)
 	case "calibrate":
 		return sv.CalibrateMiddle()
+	case "positionAs":
+		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
+		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
+		if err := sv.SetPositionAs(steps); err != nil {
+			return err
+		}
+		s.logf("info", "servo %d: current position now reads %.1f° (offset saved on the servo)", req.ID, float64(steps)*st3215.DegreesPerStep)
+		return nil
 	case "setid":
 		if slices.Contains(s.servoIDs(), req.NewID) {
 			return fmt.Errorf("ID %d is already used on the bus", req.NewID)
