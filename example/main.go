@@ -553,7 +553,7 @@ type request struct {
 	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
-	Degrees  float64    `json:"degrees"` // "positionAs": what the current position should read; "zeroAt": the angle (as shown) that becomes 0°
+	Degrees  float64    `json:"degrees"` // for "zeroAt": the angle (as shown) that becomes 0°
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -735,8 +735,6 @@ func changeNote(req request) string {
 		return fmt.Sprintf("multi-turn %s", onOff(req.On))
 	case "torqueLimit":
 		return fmt.Sprintf("torque limit %.0f%%", req.Percent)
-	case "calibrate":
-		return "center calibrated"
 	case "write":
 		return fmt.Sprintf("%s ← %d", req.Register, req.Value)
 	case "tune":
@@ -769,8 +767,8 @@ func onOff(on bool) string {
 // changesServo lists the commands after which a fresh config is broadcast.
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
-	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "zeroAt": true, "zeroReset": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
+	"multiturn": true, "torqueLimit": true, "write": true, "tune": true,
+	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "zeroReset": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -1065,16 +1063,6 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetMultiTurn(req.On)
 	case "torqueLimit":
 		return sv.SetTorqueLimit(req.Percent)
-	case "calibrate":
-		return sv.CalibrateMiddle()
-	case "positionAs":
-		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
-		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
-		if err := sv.SetPositionAs(steps); err != nil {
-			return err
-		}
-		s.logf("info", "servo %d: current position now reads %.1f° (offset saved on the servo)", req.ID, float64(steps)*st3215.DegreesPerStep)
-		return nil
 	case "zeroReset":
 		if err := sv.ResetZero(); err != nil {
 			return err
