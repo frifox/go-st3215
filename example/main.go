@@ -49,12 +49,22 @@ func main() {
 	sim := flag.String("sim", "", "connect to simulated servos with these IDs on startup, e.g. 1,2,3")
 	poll := flag.Duration("poll", 50*time.Millisecond, "telemetry polling interval")
 	noSync := flag.Bool("nosync", false, "poll servos one by one instead of SYNC READ")
+	cfgPath := flag.String("config", "config.toml", "per-servo settings file (names, mirrored), created on first change")
 	flag.Parse()
+
+	cfg, warnings, err := loadConfig(*cfgPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, w := range warnings {
+		log.Print(w)
+	}
+	log.Printf("config: %s (%d servo entries)", *cfgPath, len(cfg.all()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv := &server{clients: map[*client]struct{}{}, mirrored: map[uint8]bool{}, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
+	srv := &server{clients: map[*client]struct{}{}, cfg: cfg, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
 	if *sim != "" {
 		ids, err := parseIDs(*sim)
 		if err != nil {
@@ -120,7 +130,7 @@ type server struct {
 	scanned    bool    // a scan has completed on this connection
 	scanning   bool
 	scanCancel context.CancelCauseFunc
-	mirrored   map[uint8]bool // IDs set as mirrored; reapplied on reconnect
+	cfg        *config // config.toml: names and mirrored state per ID
 	clients    map[*client]struct{}
 }
 
@@ -148,13 +158,18 @@ func (s *server) broadcast(msg any) {
 func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	mirrored := []int{}
-	for id := range s.mirrored {
-		mirrored = append(mirrored, int(id))
+	mirrored, names := []int{}, map[string]string{}
+	for id, sc := range s.cfg.all() {
+		if sc.Mirrored {
+			mirrored = append(mirrored, int(id))
+		}
+		if sc.Name != "" {
+			names[strconv.Itoa(int(id))] = sc.Name
+		}
 	}
 	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
-		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored}
+		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -270,11 +285,9 @@ func (s *server) connect(port string, baud int) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	for id := range s.mirrored {
-		bus.SetMirrored(id, true)
+	for id, sc := range s.cfg.all() {
+		bus.SetMirrored(id, sc.Mirrored)
 	}
-	s.mu.Unlock()
 	s.busMu.Lock()
 	s.bus = bus
 	s.busMu.Unlock()
@@ -421,14 +434,15 @@ func toState(f st3215.Feedback, err error) servoState {
 // Messages
 
 type stateMsg struct {
-	Type      string `json:"type"`
-	Connected bool   `json:"connected"`
-	Port      string `json:"port"`
-	Baud      int    `json:"baud"`
-	Scanning  bool   `json:"scanning"`
-	Scanned   bool   `json:"scanned"`
-	IDs       []int  `json:"ids"` // not []uint8: encoding/json would emit base64
-	Mirrored  []int  `json:"mirrored"`
+	Type      string            `json:"type"`
+	Connected bool              `json:"connected"`
+	Port      string            `json:"port"`
+	Baud      int               `json:"baud"`
+	Scanning  bool              `json:"scanning"`
+	Scanned   bool              `json:"scanned"`
+	IDs       []int             `json:"ids"` // not []uint8: encoding/json would emit base64
+	Mirrored  []int             `json:"mirrored"`
+	Names     map[string]string `json:"names"` // servo ID -> name from config.toml
 }
 
 type portsMsg struct {
@@ -503,6 +517,7 @@ type request struct {
 	Register string     `json:"register"`
 	Value    int        `json:"value"`
 	Percent  float64    `json:"percent"`
+	Name     string     `json:"name"`   // for "rename"
 	Values   []regValue `json:"values"` // for "tune"
 	Save     bool       `json:"save"`   // for "tune": persist instead of until power-off
 }
@@ -642,13 +657,20 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetMode(st3215.Mode(req.Mode))
 	case "mirror":
 		bus.SetMirrored(req.ID, req.On)
-		s.mu.Lock()
-		if req.On {
-			s.mirrored[req.ID] = true
-		} else {
-			delete(s.mirrored, req.ID)
+		err := s.cfg.update(req.ID, func(c *servoConfig) { c.Mirrored = req.On })
+		s.broadcastState()
+		if err != nil {
+			return fmt.Errorf("mirrored is active but not saved: %w", err)
 		}
-		s.mu.Unlock()
+		return nil
+	case "rename":
+		name, err := validName(req.Name)
+		if err != nil {
+			return err
+		}
+		if err := s.cfg.update(req.ID, func(c *servoConfig) { c.Name = name }); err != nil {
+			return err
+		}
 		s.broadcastState()
 		return nil
 	case "multiturn":
@@ -664,11 +686,11 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if err := sv.SetID(req.NewID); err != nil {
 			return err
 		}
-		s.mu.Lock()
-		if s.mirrored[req.ID] { // the bus moved the flag to the new ID too
-			delete(s.mirrored, req.ID)
-			s.mirrored[req.NewID] = true
+		// The bus moved the mirrored flag to the new ID; keep config.toml in step.
+		if err := s.cfg.move(req.ID, req.NewID); err != nil {
+			s.logf("error", "config: %v", err)
 		}
+		s.mu.Lock()
 		s.ids = slices.DeleteFunc(s.ids, func(id uint8) bool { return id == req.ID })
 		s.ids = append(s.ids, req.NewID)
 		slices.Sort(s.ids)

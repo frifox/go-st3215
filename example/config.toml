@@ -1,0 +1,11 @@
+# go-st3215 demo: per-servo settings, keyed by servo ID.
+# Edited by the web UI (Name, Mirrored); changes made here are read on startup.
+#
+# Example:
+#
+# [1]
+# Name = "Left"
+#
+# [2]
+# Name = "Right"
+# Mirrored = true

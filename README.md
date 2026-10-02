@@ -100,7 +100,20 @@ go run . -sim 1,2,3                    # simulated servos, no hardware needed
 ```
 
 Then open http://localhost:8080. Other flags: `-baud`, `-addr`, `-poll` (telemetry interval,
-default 50 ms) and `-nosync` (poll servos one by one if SYNC READ misbehaves).
+default 50 ms), `-nosync` (poll servos one by one if SYNC READ misbehaves) and `-config`.
+
+Per-servo settings that can't be stored on the servo are kept in
+[`example/config.toml`](example/config.toml), keyed by servo ID. The web UI writes it when you
+rename a servo, toggle Mirrored or change an ID. Edits made by hand are read on startup:
+
+```toml
+[1]
+Name = "Left"
+
+[2]
+Name = "Right"
+Mirrored = true
+```
 
 The demo is a separate Go module (`example/go.mod`), so the library itself only depends on
 `go.bug.st/serial`. Listing USB port details uses cgo on macOS (the Xcode command line tools).

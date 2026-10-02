@@ -68,6 +68,9 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 .servo-item.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
 .servo-item .row1 { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .servo-item .row1[data-mirrored="1"]::after { content: "mirrored"; margin-left: auto; font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
+.servo-item .row1 .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-name { text-transform: none; letter-spacing: 0; color: var(--text); font-weight: 600; margin-left: 2px; }
+.sel-name:not(:empty)::before { content: "· "; color: var(--muted); }
 .servo-item .row2 { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
 /* main grid */
@@ -273,7 +276,7 @@ td .num { width: 90px; padding: 3px 6px; }
 
   <main class="main" id="main" hidden>
     <section class="card servo-card">
-      <h2>Servo <span id="selId">–</span>
+      <h2>Servo <span id="selId">–</span><span id="selName" class="sel-name"></span>
         <label class="switch head-switch" title="For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo."><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored</span></label>
         <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
       <div class="card-body overview">
@@ -377,6 +380,13 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
+          <span>Name</span>
+          <input class="num" type="text" id="servoName" maxlength="40" placeholder="e.g. Left" style="width:180px;font-family:inherit">
+          <button class="btn" id="saveNameBtn">Save name</button>
+        </div>
+        <p class="hint">Name and Mirrored are kept in the demo's <code>config.toml</code>, keyed by servo ID.</p>
+        <hr class="sep">
+        <div class="row">
           <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Multi-turn (angle limits 0/0)</span></label>
         </div>
         <hr class="sep">
@@ -524,10 +534,28 @@ function renderList() {
     const b = document.createElement("button");
     b.className = "servo-item" + (id === state.selected ? " active" : "");
     b.id = "item-" + id;
-    b.innerHTML = `<div class="row1"><span class="dot"></span>ID ${id}</div><div class="row2">–</div>`;
+    b.innerHTML = `<div class="row1"><span class="dot"></span><span class="label"></span></div><div class="row2">–</div>`;
     b.onclick = () => selectServo(id);
     list.appendChild(b);
   }
+  renderNames();
+}
+
+function servoName(id) { return (state.names || {})[id] || ""; }
+
+// renderNames refreshes everything that shows a servo's name or mirrored flag.
+function renderNames() {
+  for (const id of state.ids) {
+    const el = $("item-" + id);
+    if (!el) continue;
+    const row1 = el.querySelector(".row1");
+    row1.dataset.mirrored = state.mirrored?.has(id) ? "1" : "";
+    const name = servoName(id);
+    row1.querySelector(".label").textContent = name ? `${name} · ID ${id}` : `ID ${id}`;
+  }
+  const name = servoName(state.selected);
+  $("selName").textContent = name ? name : "";
+  if (document.activeElement !== $("servoName")) $("servoName").value = name;
 }
 
 function updateListItem(id, f) {
@@ -543,6 +571,7 @@ function selectServo(id) {
   state.selected = id;
   document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "item-" + id));
   $("selId").textContent = id;
+  renderNames();
   $("newId").value = "";
   $("mirrored").checked = !!state.mirrored?.has(id);
   $("main").hidden = false;
@@ -834,6 +863,13 @@ $("pwmBtn").onclick = () => cmd("pwm", { duty: Number($("pwm").value) }, `pwm ${
 $("pwmStop").onclick = () => { setPair("pwm", 0); cmd("pwm", { duty: 0 }, "pwm stop"); };
 $("stepBtn").onclick = () => cmd("move", { position: Number($("stepRel").value), ...motion() }, `step ${$("stepRel").value}`);
 
+async function saveName() {
+  const name = $("servoName").value.trim();
+  if (await cmd("rename", { name }, name ? `servo ${state.selected} named “${name}”` : `servo ${state.selected} name cleared`)) $("servoName").blur();
+}
+$("saveNameBtn").onclick = saveName;
+$("servoName").addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(); });
+
 $("mirrored").onchange = async (e) => {
   if (await cmd("mirror", { on: e.target.checked }, `servo ${state.selected} mirrored ${e.target.checked ? "on" : "off"}`)) {
     state.hist[state.selected] = []; // history switches coordinates
@@ -989,11 +1025,9 @@ function onState(m) {
   if (!m.scanning) $("scanBar").style.width = m.scanned ? "100%" : "0";
   setServos(m.ids);
   state.mirrored = new Set(m.mirrored || []);
+  state.names = m.names || {};
   $("mirrored").checked = state.mirrored.has(state.selected);
-  for (const id of state.ids) {
-    const el = $("item-" + id);
-    if (el) el.querySelector(".row1").dataset.mirrored = state.mirrored.has(id) ? "1" : "";
-  }
+  renderNames();
   renderView();
 }
 
