@@ -1300,14 +1300,22 @@ $("targetNum").addEventListener("input", (e) => {
   setTarget(Math.round(Number($("targetNum").value)));
   live(() => move(true));
 });
+// targetDeg reads the degree field and wraps it into the shown range
+// (0..360, or -180..180 for ±180° servos), rewriting the field if needed.
+function targetDeg() {
+  const el = $("targetDegNum");
+  const d = Math.round(signedDeg(state.selected, wrap360(Number(el.value) || 0)) * 10) / 10;
+  if (Number(el.value) !== d) el.value = d.toFixed(1);
+  return d;
+}
 $("targetDegNum").addEventListener("input", (e) => {
   if (!stepped(e)) return;
-  const d = Number($("targetDegNum").value);
+  const d = targetDeg();
   setTarget(nearestGoal(stepsFromVdeg(state.selected, d)), true);
   live(() => moveAngle(d, true));
 });
 $("targetNum").addEventListener("change", () => setTarget(Math.round(Number($("targetNum").value))));
-$("targetDegNum").addEventListener("change", () => setTarget(nearestGoal(stepsFromVdeg(state.selected, Number($("targetDegNum").value)))));
+$("targetDegNum").addEventListener("change", () => setTarget(nearestGoal(stepsFromVdeg(state.selected, targetDeg()))));
 // Enter in either target field moves there right away.
 $("targetNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1316,7 +1324,7 @@ $("targetNum").addEventListener("keydown", (e) => {
 });
 $("targetDegNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  moveAngle(Number($("targetDegNum").value));
+  moveAngle(targetDeg());
 });
 bindPair("speed");
 bindPair("acc");

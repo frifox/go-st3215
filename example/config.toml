@@ -3,6 +3,7 @@
 
 [1]
 Name = "Right Servo"
+Signed = true
 Zero = 270.0
 
 [2]
