@@ -561,3 +561,33 @@ func TestResetZero(t *testing.T) {
 		t.Fatal("goal", physGoal(p, 1))
 	}
 }
+
+func TestSetZeroAbsolute(t *testing.T) {
+	for _, mirrored := range []bool{false, true} {
+		b, p := newTestBus(t, 1)
+		b.SetMirrored(1, mirrored)
+		sv := b.Servo(1)
+		for i := 0; i < 2; i++ { // applying twice must not shift twice
+			if err := sv.SetZero(3072); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if z, _ := sv.Zero(); z != 3072 {
+			t.Fatalf("mirrored=%v: Zero %d", mirrored, z)
+		}
+		off := RegPositionOffset.decode(p.servos[1].mem[RegPositionOffset.Addr:])
+		want := -1024 // 3072 ≡ -1024
+		if mirrored {
+			want = 1024
+		}
+		if off != want {
+			t.Fatalf("mirrored=%v: offset %d, want %d", mirrored, off, want)
+		}
+		if err := sv.SetZero(0); err != nil {
+			t.Fatal(err)
+		}
+		if z, _ := sv.Zero(); z != 0 {
+			t.Fatal("back to factory", z)
+		}
+	}
+}

@@ -553,7 +553,7 @@ type request struct {
 	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
-	Degrees  float64    `json:"degrees"` // for "zeroAt": the angle (as shown) that becomes 0°
+	Degrees  float64    `json:"degrees"` // for "zeroAt": where 0° goes, in degrees on the factory scale
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -1070,12 +1070,12 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		s.logf("info", "servo %d: position offset reset to 0 (factory zero)", req.ID)
 		return nil
 	case "zeroAt":
-		// The angle is as the console shows it, i.e. after any virtual 0°;
-		// the servo's own zero replaces the virtual one, so fold it in and clear it.
+		// Absolute: where the servo's 0° goes on the factory scale. The servo's
+		// own zero replaces a virtual one, so that is cleared.
 		vz := s.cfg.get(req.ID).Zero
-		d := math.Mod(math.Mod(req.Degrees+vz, 360)+360, 360)
+		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
 		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
-		if err := sv.SetZeroAt(steps); err != nil {
+		if err := sv.SetZero(steps); err != nil {
 			return err
 		}
 		if vz != 0 {
@@ -1084,7 +1084,7 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			}
 			s.broadcastState()
 		}
-		s.logf("info", "servo %d: the %.1f° mark is now 0° (offset saved on the servo)", req.ID, req.Degrees)
+		s.logf("info", "servo %d: 0° is now at %.1f° on the factory scale (offset saved on the servo)", req.ID, d)
 		return nil
 	case "setid":
 		if slices.Contains(s.servoIDs(), req.NewID) {
