@@ -503,6 +503,17 @@ func (s *Servo) SetZeroAt(at int) error {
 	return s.shiftOffset(shift)
 }
 
+// ResetZero sets PositionOffset back to 0 (factory default), so readings are
+// the raw encoder angle again. Like SetZeroAt, a servo holding torque doesn't
+// move.
+func (s *Servo) ResetZero() error {
+	off, err := s.Read(RegPositionOffset)
+	if err != nil {
+		return err
+	}
+	return s.shiftOffset(-off)
+}
+
 // SetPositionAs makes the current position read pos (steps, logical), by the
 // same mechanism as SetZeroAt. CalibrateMiddle is SetPositionAs(2048).
 func (s *Servo) SetPositionAs(pos int) error {

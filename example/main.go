@@ -770,7 +770,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "zeroAt": true, "zeroReset": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -1074,6 +1074,12 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			return err
 		}
 		s.logf("info", "servo %d: current position now reads %.1f° (offset saved on the servo)", req.ID, float64(steps)*st3215.DegreesPerStep)
+		return nil
+	case "zeroReset":
+		if err := sv.ResetZero(); err != nil {
+			return err
+		}
+		s.logf("info", "servo %d: position offset reset to 0 (factory zero)", req.ID)
 		return nil
 	case "zeroAt":
 		// The angle is as the console shows it, i.e. after any virtual 0°;

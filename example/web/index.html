@@ -460,6 +460,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <span>°</span>
           <button class="btn small" id="zeroAtHere" title="Fill in the angle the arm is at now">Current position</button>
           <button class="btn" id="zeroAtBtn">Set</button>
+          <button class="btn" id="zeroResetBtn" title="Position offset back to 0: readings are the raw encoder angle again">Factory zero</button>
         </div>
         <p class="hint" id="posAsHint">Writes the servo's position offset so the current position reads that angle. Saved on the servo.</p>
         <hr class="sep">
@@ -1783,9 +1784,10 @@ $("colorPick").addEventListener("change", (e) => {
 function renderPosAsHint() {
   const id = state.selected, off = offsetOf(id);
   if (id === null || state.selGroup) return;
-  let t = `Servo 0° at: the angle, as the dial shows it now, that becomes the servo's own 0°; e.g. 270 turns the 270° mark into 0° and today's 0° into 90°. Saved on the servo (position offset, now ${off} steps), so every app sees the same angles. The arm doesn't move; the dial labels and readouts change. Center makes the current position read 180°.`;
+  let t = `Offset now: ${off} steps (${(off * DEG).toFixed(1)}°)${off ? "" : ", the factory zero"}. Servo 0° at: the angle, as the dial shows it now, that becomes the servo's own 0°; e.g. 270 turns the 270° mark into 0° and today's 0° into 90°. Saved on the servo (position offset), so every app sees the same angles. The arm doesn't move; the dial labels and readouts change. Center makes the current position read 180°.`;
   if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
   if (zeroOf(id)) t += ` Replaces the virtual 0° (${zeroOf(id)}°) set in this console.`;
+  if (state.mirrored?.has(id)) t += " This servo is mirrored: its dial turns the opposite way to its own arm, so it matches its partner.";
   $("posAsHint").textContent = t;
 }
 async function setPositionAs(degrees) {
@@ -1796,10 +1798,17 @@ async function setPositionAs(degrees) {
 $("zeroAtBtn").onclick = async () => {
   const id = state.selected, d = Math.round(Number($("zeroAtDeg").value) * 10) / 10;
   if (!(d >= 0 && d < 360)) return log("Angle must be 0–359.9°", "error");
+  if (d === 0) return log("Servo 0° at 0° changes nothing (it shifts every angle by 0°). To go back to the factory zero, use Factory zero.", "error");
   const after0 = Math.round(wrap360(0 - d) * 10) / 10;
   if (!await ask(`Make the ${d}° mark servo ${id}'s 0°?\n\nEvery angle shifts by ${d}° (today's 0° becomes ${after0}°). This changes the position offset saved on the servo; the arm stays where it is.` +
     (zeroOf(id) ? `\n\nThe virtual 0° (${zeroOf(id)}°) is cleared, since the servo's zero replaces it.` : ""), "Set")) return;
   if (await cmd("zeroAt", { degrees: d })) { $("zeroAtDeg").value = 0; loadConfig(true); }
+};
+$("zeroResetBtn").onclick = async () => {
+  const id = state.selected, off = offsetOf(id);
+  if (!off) return log(`Servo ${id} already has the factory zero (offset 0).`);
+  if (!await ask(`Reset servo ${id}'s position offset (${off} steps, ${(off * DEG).toFixed(1)}°) to 0, the factory zero?\n\nReadings become the raw encoder angle. The arm stays where it is.`, "Reset")) return;
+  if (await cmd("zeroReset", {})) loadConfig(true);
 };
 $("zeroAtHere").onclick = () => {
   const f = state.fb[state.selected];

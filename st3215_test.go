@@ -544,3 +544,20 @@ func TestSetZeroAtTorqueOffLeavesGoal(t *testing.T) {
 		t.Fatal("goal changed")
 	}
 }
+
+func TestResetZero(t *testing.T) {
+	b, p := newTestBus(t, 1)
+	m := p.servos[1].mem[:]
+	putU16(m[RegPositionOffset.Addr:], encodeSignMag(1186, 11))
+	putU16(m[RegGoalPosition.Addr:], 100)
+	m[RegTorqueEnable.Addr] = 1
+	if err := b.Servo(1).ResetZero(); err != nil {
+		t.Fatal(err)
+	}
+	if off := RegPositionOffset.decode(m[RegPositionOffset.Addr:]); off != 0 {
+		t.Fatal("offset", off)
+	}
+	if physGoal(p, 1) != 1286 { // same raw spot: 100 + 1186
+		t.Fatal("goal", physGoal(p, 1))
+	}
+}
