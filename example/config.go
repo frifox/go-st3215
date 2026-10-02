@@ -24,11 +24,6 @@ type servoConfig struct {
 	Color    string  `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
 	Zero     float64 `toml:"Zero,omitzero"`   // virtual 0° (degrees, 0..360): shown angle = physical - Zero
 	DialUp   float64 `toml:"DialUp,omitzero"` // encoder-scale angle at which the arm points physically up (dial orientation)
-	// FactoryOffset is the servo's factory calibration (PositionOffset after a
-	// factory reset, physical steps), recorded by Factory reset. The console
-	// measures angles and the servo zero from it, so at the factory state 0°
-	// is the factory-calibrated 0°.
-	FactoryOffset int `toml:"FactoryOffset,omitzero"`
 }
 
 func (c servoConfig) empty() bool { return c == servoConfig{} }

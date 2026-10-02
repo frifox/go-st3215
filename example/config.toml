@@ -3,7 +3,6 @@
 
 [1]
 Name = "Right Servo"
-FactoryOffset = 85
 
 [2]
 Name = "Left Servo"
