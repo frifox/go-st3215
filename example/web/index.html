@@ -130,6 +130,11 @@ td.mono { font-family: var(--mono); }
 td .num { width: 90px; padding: 3px 6px; }
 .badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
 .badge.ee { color: var(--warn); border-color: var(--warn); }
+/* compact switch inside card headers */
+.head-switch { margin-left: 12px; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; color: var(--text); }
+.head-switch .track { width: 30px; height: 18px; }
+.head-switch .track::after { width: 12px; height: 12px; }
+.head-switch input:checked + .track::after { transform: translateX(12px); }
 /* setup steps */
 .wizard { max-width: 760px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
 .steps { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
@@ -244,7 +249,9 @@ td .num { width: 90px; padding: 3px 6px; }
 
   <main class="main" id="main" hidden>
     <section class="card span2">
-      <h2>Servo <span id="selId">–</span> <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+      <h2>Servo <span id="selId">–</span>
+        <label class="switch head-switch" title="For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo."><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored</span></label>
+        <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
       <div class="card-body overview">
         <svg id="dial" viewBox="0 0 240 240" aria-label="Position dial">
           <circle class="face" cx="120" cy="120" r="108"/>
@@ -345,11 +352,6 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
-          <label class="switch"><input type="checkbox" id="mirrored"><span class="track"></span><span>Mirrored (reverse direction)</span></label>
-        </div>
-        <p class="hint">For a servo mounted facing its partner: positions are reflected about 2048 and directions flipped, so the same commands move both in sync. Calibrate both to the same center pose first. Not stored on the servo.</p>
-        <hr class="sep">
-        <div class="row">
           <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Multi-turn (angle limits 0/0)</span></label>
         </div>
         <hr class="sep">
