@@ -416,8 +416,8 @@ td .num { width: 90px; padding: 3px 6px; }
     <div class="col">
     <section class="card">
       <h2>Tuning <span class="spacer"></span>
-        <select id="tunePreset" class="num" style="width:auto;text-transform:none;letter-spacing:0;font-weight:400;font-family:inherit">
-          <option value="">Load preset…</option>
+        <select id="tunePreset" title="Preset matching the values shown; pick one to load it" class="num" style="width:auto;text-transform:none;letter-spacing:0;font-weight:400;font-family:inherit">
+          <option value="custom" disabled>Custom</option>
           <option value="factory">Factory defaults</option>
           <option value="soft">Light arm, smooth</option>
           <option value="heavy">Heavy / high inertia</option>
@@ -1046,6 +1046,7 @@ function renderTuning() {
   if (t) parts.push(`${t} tried value${t > 1 ? "s" : ""} not saved`);
   $("tuneStatus").textContent = parts.length ? parts.join(" · ") : "No changes";
   $("tuneStatus").classList.toggle("warn", t > 0);
+  $("tunePreset").value = matchingPreset() || "custom";
   $("tuneRevert").disabled = !n;
   $("tuneTry").disabled = !n;
   $("tuneSave").disabled = false; // with nothing pending it saves all current values
@@ -1093,11 +1094,20 @@ $("tuneSave").onclick = () => applyTuning(true);
 $("tuneRevert").onclick = () => { state.tune.cur = { ...state.tune.base }; renderTuning(); };
 $("tunePreset").onchange = (e) => {
   const p = PRESETS[e.target.value];
-  e.target.value = "";
   if (!p) return;
   Object.assign(state.tune.cur, p);
   renderTuning();
 };
+
+// matchingPreset names the preset whose values all equal the current form
+// values (loop presets only define the loop registers), or "" if none.
+function matchingPreset() {
+  const cur = state.tune.cur;
+  for (const [name, p] of Object.entries(PRESETS)) {
+    if (Object.entries(p).every(([reg, v]) => cur[reg] === v)) return name;
+  }
+  return "";
+}
 
 // ---------------------------------------------------------------- board & scan steps
 state.server = { connected: false, scanning: false, scanned: false, ids: [] };
