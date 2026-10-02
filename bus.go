@@ -32,7 +32,8 @@ type Bus struct {
 	tmp      []byte
 
 	cfgMu  sync.RWMutex
-	mirror map[uint8]bool // IDs of mirrored servos, see mirror.go
+	mirror map[uint8]bool  // IDs of mirrored servos, see mirror.go
+	ranges map[uint8]Range // motion ranges, see range.go
 }
 
 // Option configures a Bus.

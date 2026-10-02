@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -163,7 +164,13 @@ func (s *server) groupCommand(bus *st3215.Bus, req request) error {
 	case "torqueLimit":
 		return g.SetTorqueLimit(req.Percent)
 	case "multiturn":
-		return g.SetMultiTurn(req.On)
+		var errs []error
+		for _, id := range gc.Members {
+			if err := s.setMultiTurn(bus.Servo(id), id, req.On); err != nil {
+				errs = append(errs, fmt.Errorf("servo %d: %w", id, err))
+			}
+		}
+		return errors.Join(errs...)
 	case "zeroHere":
 		// The pose the members are in now becomes 0° on each servo. The
 		// servos' own zero replaces a virtual one, so those are cleared.

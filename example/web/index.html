@@ -486,10 +486,6 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Setup</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
-          <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
-        </div>
-        <hr class="sep">
-        <div class="row">
           <span>Set 0° to</span>
           <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
           <span>or</span>
@@ -505,7 +501,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <input class="num" type="number" id="limMax" step="0.1" style="width:80px">
           <span>°</span>
           <button class="btn" id="limSet">Set</button>
-          <button class="btn" id="limClear" title="Allow the whole turn again (single-turn)">Clear</button>
+          <button class="btn" id="limClear" title="Remove the motion range">Clear</button>
         </div>
         <div class="row">
           <span>Set current position as</span>
@@ -513,6 +509,9 @@ td .num { width: 90px; padding: 3px 6px; }
           <button class="btn small" id="limMaxHere">Max</button>
         </div>
         <p class="hint" id="limHint"></p>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
+        </div>
         <hr class="sep">
         <div class="row">
           <span>Change Servo ID to</span>
@@ -1250,7 +1249,8 @@ function onConfig(m) {
   $("multiturn").checked = isMultiTurn(c);
   setMode(c.mode);
   buildTicks(labelZero(members()[0] ?? m.id), signedOf(members()[0] ?? m.id)); // the offset may have changed
-  setLimitArc(c.minAngleLimit, c.maxAngleLimit);
+  const lim = limitsOf(m.id);
+  setLimitArc(lim ? lim[0] : c.minAngleLimit, lim ? lim[1] : c.maxAngleLimit);
   renderPosAsHint();
   renderLimits();
   const t = $("target");
@@ -1723,6 +1723,7 @@ function onState(m) {
   state.colors = m.colors || {};
   state.zeros = m.zeros || {};
   state.dialUps = m.dialUps || {};
+  state.ranges = m.ranges || {};
   state.groups = m.groups || [];
   $("mirrored").checked = state.mirrored.has(state.selected);
   // A group this window just created: open it.
@@ -1738,7 +1739,9 @@ function onState(m) {
   } else if (state.selected !== null && m.connected) {
     applyMode(); // refresh in place: needles, dial labels, member chips, health limits
     const lc = state.cfg[state.selected];
-    if (lc) setLimitArc(lc.minAngleLimit, lc.maxAngleLimit); // the dial may have turned
+    const lim = limitsOf(state.selected);
+    if (lc) setLimitArc(lim ? lim[0] : lc.minAngleLimit, lim ? lim[1] : lc.maxAngleLimit); // the dial may have turned
+    renderLimits();
     renderNames();
     renderHealthSettings();
     setTarget(Number($("target").value)); // re-show the target in (possibly new) virtual degrees
@@ -1991,10 +1994,14 @@ $("zeroAtDeg").addEventListener("keydown", (e) => {
 // Angle limits in the degrees the dial shows; the range runs clockwise from
 // Min to Max. The fields show the limits saved on the servo unless being edited.
 const rnd1 = (d) => Math.round(d * 10) / 10;
+// limitsOf: the motion range (kept in config.toml on the encoder scale) as
+// [start, end] readings; end may pass 4095 when the arc crosses the servo's 0.
 function limitsOf(id) {
-  const c = state.cfg[id];
-  if (!c || multiTurnOf(id) || (c.minAngleLimit === 0 && c.maxAngleLimit >= STEPS - 1)) return null;
-  return [c.minAngleLimit, c.maxAngleLimit];
+  const r = (state.ranges || {})[id];
+  if (!r || !state.cfg[id]) return null;
+  const zero = (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); // the servo's 0 on the encoder scale
+  const lo = (((r[0] - zero) % STEPS) + STEPS) % STEPS;
+  return [lo, lo + ((((r[1] - r[0]) % STEPS) + STEPS) % STEPS)];
 }
 function renderLimits() {
   const id = state.selected;
@@ -2005,8 +2012,9 @@ function renderLimits() {
     $("limMax").value = lim ? rnd1(vdeg(id, lim[1])) : "";
   }
   $("limHint").textContent = lim
-    ? `Limited to ${fmtDeg(vdeg(id, lim[0]))} … ${fmtDeg(vdeg(id, lim[1]))} clockwise (${rnd1((lim[1] - lim[0]) * DEG)}°, steps ${lim[0]}…${lim[1]}). Saved on the servo: it won't take goals outside, from any app.`
-    : multiTurnOf(id) ? "No limit (multi-turn). Setting a range turns multi-turn off." : "No limit: the whole turn is allowed.";
+    ? `Limited to ${fmtDeg(vdeg(id, lim[0]))} … ${fmtDeg(vdeg(id, lim[1]))} clockwise (${rnd1((lim[1] - lim[0]) * DEG)}°). Moves from this console stay inside, along the arc. ` +
+      (multiTurnOf(id) ? "Multi-turn: the servo has no limits of its own, so other apps aren't restricted." : "Also saved on the servo as angle limits, so other apps are restricted too.")
+    : "No limit: the whole turn is allowed.";
 }
 function markLimPending() { $("limMin").dataset.pending = "1"; }
 $("limMin").addEventListener("input", markLimPending);
@@ -2029,9 +2037,10 @@ $("limSet").onclick = async () => {
   const f = state.fb[id], cur = f && !f.error ? vdeg(id, f.position) : null;
   const outside = cur !== null && wrap360(cur - min) > span + 0.05;
   if (!await ask(`Limit servo ${id} to ${fmtDeg(min)} … ${fmtDeg(max)}, clockwise (${span}° of travel)?\n\n` +
-    "The limits are saved on the servo, so it refuses goals outside the range from any app." +
-    (multiTurnOf(id) ? " Multi-turn turns off (the range never needs to cross 0° anyway)." : "") +
-    (crosses ? "\n\nThe range crosses the servo's own 0, which limits can't do, so the servo's 0 is moved (saved on the servo). The angles shown here stay the same." : "") +
+    "Moves from this console stay inside the range and travel along it, in single-turn and multi-turn mode (saved in config.toml)." +
+    (multiTurnOf(id) ? " In multi-turn mode the servo itself has no limits, so other apps aren't restricted."
+      : " It is also saved on the servo as angle limits, so other apps are restricted too." +
+        (crosses ? "\n\nThe range crosses the servo's own 0, which angle limits can't do, so the servo's 0 is moved (saved on the servo). The angles shown here stay the same." : "")) +
     (outside ? `\n\nThe arm is outside this range now (${fmtDeg(cur)}): the servo will go to the nearest limit when it next moves.` : ""), "Set")) return;
   if (await cmd("limits", { minDeg: min, maxDeg: max }, `range limited to ${fmtDeg(min)} … ${fmtDeg(max)}`)) {
     delete $("limMin").dataset.pending;
@@ -2042,7 +2051,7 @@ $("limClear").onclick = async () => {
   const id = state.selected;
   if (!limitsOf(id)) return log(`Servo ${id} has no range limit.`);
   if (!await ask(`Remove servo ${id}'s range limit? It may then move over the whole turn.`, "Clear")) return;
-  if (await cmd("multiturn", { on: false }, "range limit cleared")) { delete $("limMin").dataset.pending; loadConfig(true); }
+  if (await cmd("limitsClear", {}, "range limit cleared")) { delete $("limMin").dataset.pending; loadConfig(true); }
 };
 for (const el of [$("limMin"), $("limMax")]) {
   el.addEventListener("keydown", (e) => {

@@ -387,6 +387,10 @@ func (s *Servo) SetID(newID uint8) error {
 		s.bus.SetMirrored(s.id, false)
 		s.bus.SetMirrored(newID, true)
 	}
+	if r, ok := s.Range(); ok {
+		s.bus.ClearRange(s.id)
+		s.bus.SetRange(newID, r)
+	}
 	s.id = newID
 	return s.LockEEPROM()
 }
@@ -684,8 +688,17 @@ func moveData(pos, speed int, acc uint8) ([]byte, error) {
 
 // MoveTo commands an absolute position (steps) with a speed in step/s
 // (0 = maximum) and acceleration in 100 step/s² (0 = maximum). It returns as
-// soon as the command is accepted. In ModeStep use StepBy instead.
+// soon as the command is accepted. In ModeStep use StepBy instead. With a
+// motion range (Bus.SetRange) the goal is kept on it.
 func (s *Servo) MoveTo(pos, speed int, acc uint8) error {
+	pos, err := s.rangeGoal(pos)
+	if err != nil {
+		return err
+	}
+	return s.moveTo(pos, speed, acc)
+}
+
+func (s *Servo) moveTo(pos, speed int, acc uint8) error {
 	data, err := moveData(mirrorPos(s.Mirrored(), pos), speed, acc)
 	if err != nil {
 		return err
@@ -807,7 +820,10 @@ func (s *Servo) MoveToShortest(pos, speed int, acc uint8) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return goal, s.MoveTo(goal, speed, acc)
+	if goal, err = s.rangeGoal(goal); err != nil {
+		return 0, err
+	}
+	return goal, s.moveTo(goal, speed, acc)
 }
 
 // within shifts p by whole turns into [lo, hi] (if it fits).
@@ -824,6 +840,10 @@ func within(p, lo, hi int) int {
 // RegMoveTo stages a MoveTo that executes on the next Bus.Action, so several
 // servos can start at exactly the same time.
 func (s *Servo) RegMoveTo(pos, speed int, acc uint8) error {
+	pos, err := s.rangeGoal(pos)
+	if err != nil {
+		return err
+	}
 	data, err := moveData(mirrorPos(s.Mirrored(), pos), speed, acc)
 	if err != nil {
 		return err

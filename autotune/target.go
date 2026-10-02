@@ -91,7 +91,7 @@ func (t *servoTarget) Position() (int, error) {
 	}
 	return p, err
 }
-func (t *servoTarget) Limits() (int, int, error)              { return t.s.AngleLimits() }
+func (t *servoTarget) Limits() (int, int, error)              { return t.s.MotionLimits() }
 func (t *servoTarget) MoveTo(pos, speed int, acc uint8) error { return t.s.MoveTo(pos, speed, acc) }
 func (t *servoTarget) Stop() error                            { return t.s.Stop() }
 func (t *servoTarget) Now() time.Time                         { return time.Now() }
@@ -138,7 +138,7 @@ func (t *groupTarget) Position() (int, error) {
 func (t *groupTarget) Limits() (int, int, error) {
 	lo, hi := 0, 0
 	for i, id := range t.g.IDs() {
-		l, h, err := t.g.Servo(id).AngleLimits()
+		l, h, err := t.g.Servo(id).MotionLimits()
 		if err != nil {
 			return 0, 0, err
 		}

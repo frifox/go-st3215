@@ -52,6 +52,9 @@ func (g *Group) MoveToShortest(pos, speed int, acc uint8) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if goal, err = g.Leader().rangeGoal(goal); err != nil { // as the leader will get it
+		return 0, err
+	}
 	return goal, g.MoveTo(goal, speed, acc)
 }
 

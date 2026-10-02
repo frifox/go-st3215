@@ -25,9 +25,12 @@ type servoConfig struct {
 	Color    string  `toml:"Color,omitempty"`  // "#rrggbb"; empty = palette color by ID
 	Zero     float64 `toml:"Zero,omitzero"`    // virtual 0° (degrees, 0..360): shown angle = physical - Zero
 	DialUp   float64 `toml:"DialUp,omitzero"`  // encoder-scale angle at which the arm points physically up (dial orientation)
+	Range    []int   `toml:"Range,omitempty"`  // motion range [lo, hi]: clockwise arc in encoder-scale steps (0..4095, logical)
 }
 
-func (c servoConfig) empty() bool { return c == servoConfig{} }
+func (c servoConfig) empty() bool {
+	return c.Name == "" && !c.Mirrored && !c.Signed && c.Color == "" && c.Zero == 0 && c.DialUp == 0 && len(c.Range) == 0
+}
 
 // groupConfig is a set of servos driven as one (see st3215.Group).
 type groupConfig struct {

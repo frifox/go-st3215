@@ -46,6 +46,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Turn count | `AbsolutePosition` (position including the turn, in goal coordinates), `CircularDiff` (compare positions across the seam) |
 | Other modes | `SetMode(ModeWheel/ModePWM/ModeStep)`, `SetWheelSpeed`, `SetPWM` |
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
+| Motion range | `Bus.SetRange(id, Range{Lo, Hi})`: keep a servo on one arc (single- and multi-turn); goals are clamped to it and reached along it, never across the gap. `MotionLimits` for the allowed goals around the present position |
 | Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |
 | Groups | `bus.Group(ids...)`: `MoveTo`, `EnableTorque`, `SetMultiTurn`, `SetPositionAs`, `SetWheelSpeed`, `Align`, `CopyFromLeader`, `WaitForPosition`, `Feedback().Spread()` / `.Fighting()` (one packet per command) |
 | Auto-tuning | `autotune.Run(ctx, autotune.ForServo(s) / ForGroup(g), opts)`: finds P, D, start force and dead zone by test moves with the real load |
@@ -145,7 +146,8 @@ Then open http://localhost:8080. Other flags: `-baud`, `-addr`, `-poll` (telemet
 default 50 ms), `-nosync` (poll servos one by one if SYNC READ misbehaves) and `-config`.
 
 Per-servo settings that can't be stored on the servo are kept in
-[`example/config.toml`](example/config.toml), keyed by servo ID. The web UI writes it when you
+[`example/config.toml`](example/config.toml), keyed by servo ID. A motion range set in Setup is kept there
+too (`Range = [lo, hi]`, encoder-scale steps) and enforced in multi-turn mode as well. The web UI writes it when you
 edit a servo (pencil next to its name: name, color, mirrored, ±180° angles, virtual 0°, dial orientation) or change an ID. Edits made by hand are read on startup:
 
 ```toml

@@ -4,4 +4,5 @@
 [10]
 Mirrored = true
 Signed = true
-DialUp = 90.0
+Zero = 180.0
+DialUp = 270.0
