@@ -737,9 +737,10 @@ func (s *server) factoryReset(bus *st3215.Bus, id uint8) error {
 // (multi-turn mode), so repeated moves can't wind up a cable.
 var turnWindow = [2]int{st3215.CenterPosition - st3215.StepsPerRev, st3215.CenterPosition + st3215.StepsPerRev}
 
-// computedMove handles moves whose goal depends on where the servo is, read
-// fresh here: "angle" goes to req.Position's angle the short way round
-// (multi-turn mode), "jog" moves req.Position steps from the present position.
+// computedMove handles moves whose goal depends on the servo's state, read
+// fresh here: "angle" goes to req.Degrees (as the console shows angles) the
+// short way round (multi-turn mode), "jog" moves req.Position steps from the
+// present position.
 // Both use the servo's absolute position: in multi-turn mode the reported
 // position wraps every turn, but goals use the servo's turn count.
 func (s *server) computedMove(req request) (int, error) {
@@ -770,8 +771,23 @@ func (s *server) computedMove(req request) (int, error) {
 				return err
 			}
 			goal = cur + req.Position
-		} else if goal, err = lead.ShortestGoal(req.Position, turnWindow[0], turnWindow[1]); err != nil {
-			return err
+		} else {
+			// req.Degrees is the angle as this console shows it: measured from
+			// the encoder, minus the virtual 0°. Convert with the offset read
+			// fresh from the servo, so a page with stale settings can't send
+			// the arm to the wrong place.
+			off, err := lead.Read(st3215.RegPositionOffset)
+			if err != nil {
+				return err
+			}
+			if bus.Mirrored(ids[0]) {
+				off = -off
+			}
+			raw := int(math.Round((req.Degrees + s.cfg.get(ids[0]).Zero) / st3215.DegreesPerStep))
+			pos := ((raw-off)%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
+			if goal, err = lead.ShortestGoal(pos, turnWindow[0], turnWindow[1]); err != nil {
+				return err
+			}
 		}
 		if req.Group != "" {
 			return bus.Group(ids...).MoveTo(goal, req.Speed, req.Acc)

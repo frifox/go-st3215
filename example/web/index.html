@@ -1108,8 +1108,7 @@ $("dial").addEventListener("click", (e) => {
   const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
   let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
   if (deg < 0) deg += 360;
-  const raw = Math.round((deg + dialUpOf(state.selected)) / DEG) - rawSteps(state.selected, 0); // dial -> servo steps
-  moveAngle(((raw % STEPS) + STEPS) % STEPS);
+  moveAngle(deg + dialUpOf(state.selected) - zeroOf(state.selected)); // dial position -> shown angle
 });
 
 // ---------------------------------------------------------------- chart
@@ -1280,7 +1279,7 @@ $("targetNum").addEventListener("keydown", (e) => {
 });
 $("targetDegNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  moveAngle(stepsFromVdeg(state.selected, Number($("targetDegNum").value)));
+  moveAngle(Number($("targetDegNum").value));
 });
 bindPair("speed");
 bindPair("acc");
@@ -1301,13 +1300,17 @@ function motion() { return { speed: Number($("speed").value), acc: Number($("acc
 // turn, but goals use its own turn count). Single-turn mode can't cross the
 // 0°/360° seam, so the long way is the only way there.
 let seamHinted = false;
-async function moveAngle(steps) {
-  const id = state.selected, cur = state.fb[id]?.position;
+// moveAngle moves to an angle as this console shows it; the server converts it
+// with the servo's current offset (read fresh), so stale page state can't
+// send the arm to the wrong place.
+async function moveAngle(degrees) {
+  degrees = Math.round(wrap360(degrees) * 10) / 10;
+  const id = state.selected, cur = state.fb[id]?.position, steps = stepsFromVdeg(id, degrees);
   if (cur !== undefined && !multiTurnOf(id) && Math.abs(steps - cur) > STEPS / 2 && !seamHinted) {
     seamHinted = true;
     log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Multi-turn in Setup to always take the shortest way.");
   }
-  const res = await ctl("angle", { position: steps, ...motion() });
+  const res = await ctl("angle", { degrees, ...motion() });
   if (res && res.goal !== undefined) {
     setTarget(res.goal);
     log(`move → ${fmtDeg(vdeg(id, res.goal))} (goal ${res.goal})`);
