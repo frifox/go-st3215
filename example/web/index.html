@@ -93,7 +93,8 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
 #dial .readout { fill: var(--text); font: 600 18px var(--mono); text-anchor: middle; }
 #dial .sub { fill: var(--muted); font: 11px var(--mono); text-anchor: middle; }
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, auto); grid-auto-flow: column; gap: 10px; }
-.servo-card .chips { width: 0; min-width: 100%; } /* wrap to the tiles width instead of widening the card */
+.servo-card .chips { width: 0; min-width: 100%; display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 5px; }
+.servo-card .chip { font-size: 11px; padding: 1px 6px; text-align: center; white-space: nowrap; } /* wrap to the tiles width instead of widening the card */
 /* narrow servo card: dial on top, tiles below */
 @container (max-width: 540px) {
   .overview { grid-template-columns: minmax(0, 1fr); justify-items: center; }
@@ -594,9 +595,10 @@ function renderSelected() {
   $("tVolt").innerHTML = `${f.voltage.toFixed(1)} <small>V</small>`;
   $("tTemp").innerHTML = `${f.temperature} <small>°C</small>`;
 
+  // Always 8 badges in a fixed 4x2 grid, so state changes never reflow the card.
   let chips = f.moving ? '<span class="chip okc">moving</span>' : '<span class="chip">idle</span>';
-  if (f.regWritePending) chips += '<span class="chip">reg write pending</span>';
   for (const [name, bit] of STATUS_BITS) chips += `<span class="chip ${f.status & bit ? "on" : ""}">${name}</span>`;
+  chips += `<span class="chip" title="A RegWrite is waiting for Action" style="visibility:${f.regWritePending ? "visible" : "hidden"}">pending</span>`;
   $("chips").innerHTML = chips;
 
   setNeedle(deg);
