@@ -4,8 +4,3 @@
 [1]
 Mirrored = true
 Signed = true
-Zero = 270.0
-
-[group.group]
-Name = "Group"
-Members = [1, 2, 3]
