@@ -3,7 +3,7 @@
 
 [1]
 Name = "Right Servo"
-Mirrored = true
+FactoryOffset = 85
 
 [2]
 Name = "Left Servo"

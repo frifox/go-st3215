@@ -168,6 +168,7 @@ func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	mirrored, names, colors, zeros, dialUps := []int{}, map[string]string{}, map[string]string{}, map[string]float64{}, map[string]float64{}
+	factoryOffsets := map[string]int{}
 	for id, sc := range s.cfg.all() {
 		if sc.Mirrored {
 			mirrored = append(mirrored, int(id))
@@ -184,11 +185,14 @@ func (s *server) stateMsg() stateMsg {
 		if sc.DialUp != 0 {
 			dialUps[strconv.Itoa(int(id))] = sc.DialUp
 		}
+		if sc.FactoryOffset != 0 {
+			factoryOffsets[strconv.Itoa(int(id))] = sc.FactoryOffset
+		}
 	}
 	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
 		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names,
-		Colors: colors, Zeros: zeros, DialUps: dialUps, Groups: groupInfos(s.cfg.allGroups())}
+		Colors: colors, Zeros: zeros, DialUps: dialUps, FactoryOffsets: factoryOffsets, Groups: groupInfos(s.cfg.allGroups())}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -456,19 +460,20 @@ func toState(f st3215.Feedback, err error) servoState {
 // Messages
 
 type stateMsg struct {
-	Type      string             `json:"type"`
-	Connected bool               `json:"connected"`
-	Port      string             `json:"port"`
-	Baud      int                `json:"baud"`
-	Scanning  bool               `json:"scanning"`
-	Scanned   bool               `json:"scanned"`
-	IDs       []int              `json:"ids"` // not []uint8: encoding/json would emit base64
-	Mirrored  []int              `json:"mirrored"`
-	Names     map[string]string  `json:"names"`   // servo ID -> name from config.toml
-	Colors    map[string]string  `json:"colors"`  // servo ID -> color override from config.toml
-	Zeros     map[string]float64 `json:"zeros"`   // servo ID -> virtual 0° in degrees
-	DialUps   map[string]float64 `json:"dialUps"` // servo ID -> factory-scale angle that is physically up
-	Groups    []groupInfo        `json:"groups"`
+	Type           string             `json:"type"`
+	Connected      bool               `json:"connected"`
+	Port           string             `json:"port"`
+	Baud           int                `json:"baud"`
+	Scanning       bool               `json:"scanning"`
+	Scanned        bool               `json:"scanned"`
+	IDs            []int              `json:"ids"` // not []uint8: encoding/json would emit base64
+	Mirrored       []int              `json:"mirrored"`
+	Names          map[string]string  `json:"names"`          // servo ID -> name from config.toml
+	Colors         map[string]string  `json:"colors"`         // servo ID -> color override from config.toml
+	Zeros          map[string]float64 `json:"zeros"`          // servo ID -> virtual 0° in degrees
+	DialUps        map[string]float64 `json:"dialUps"`        // servo ID -> factory-scale angle that is physically up
+	FactoryOffsets map[string]int     `json:"factoryOffsets"` // servo ID -> factory calibration offset (steps)
+	Groups         []groupInfo        `json:"groups"`
 }
 
 type portsMsg struct {
@@ -701,6 +706,7 @@ func (s *server) factoryReset(bus *st3215.Bus, id uint8) error {
 		changed = []string{"no saved settings changed"}
 	}
 	s.logf("info", "servo %d factory reset: %s", id, strings.Join(changed, ", "))
+	factoryOff := st3215.RegPositionOffset.Value(after)
 
 	s.mu.Lock()
 	delete(s.tried, id)
@@ -728,8 +734,24 @@ func (s *server) factoryReset(bus *st3215.Bus, id uint8) error {
 		}
 		s.broadcastState()
 	}
+	// Remember the factory calibration: the console measures angles from it.
+	if err := s.cfg.update(newID, func(c *servoConfig) { c.FactoryOffset = factoryOff }); err != nil {
+		s.logf("error", "config: %v", err)
+	}
+	s.logf("info", "servo %d: factory calibration offset %d steps (%.1f°) recorded; 0° now means the factory 0°", newID, factoryOff, float64(factoryOff)*st3215.DegreesPerStep)
+	s.broadcastState()
 	s.scheduleRefresh(newID, -1)
 	return nil
+}
+
+// calibration is the factory calibration in SetZero terms (encoder-scale
+// steps, logical): SetZero(calibration) restores the factory offset.
+func calibration(bus *st3215.Bus, id uint8, sc servoConfig) int {
+	c := sc.FactoryOffset
+	if bus.Mirrored(id) {
+		c = -c
+	}
+	return (c%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
 }
 
 // turnWindow keeps angle moves within one turn either side of the center
@@ -1138,19 +1160,21 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetTorqueLimit(req.Percent)
 	case "factoryReset":
 		return s.factoryReset(bus, req.ID)
-	case "zeroReset":
-		if err := sv.ResetZero(); err != nil {
+	case "zeroReset": // back to the factory calibration
+		sc := s.cfg.get(req.ID)
+		if err := sv.SetZero(calibration(bus, req.ID, sc)); err != nil {
 			return err
 		}
-		s.logf("info", "servo %d: position offset cleared (0, raw encoder angle)", req.ID)
+		s.logf("info", "servo %d: zero back to the factory calibration (offset %d)", req.ID, sc.FactoryOffset)
 		return nil
 	case "zeroAt":
 		// Absolute: where the servo's 0° goes on the encoder scale. The servo's
 		// own zero replaces a virtual one, so that is cleared.
-		vz := s.cfg.get(req.ID).Zero
+		sc := s.cfg.get(req.ID)
+		vz := sc.Zero
 		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
 		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
-		if err := sv.SetZero(steps); err != nil {
+		if err := sv.SetZero(steps + calibration(bus, req.ID, sc)); err != nil {
 			return err
 		}
 		if vz != 0 {

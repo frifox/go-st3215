@@ -460,7 +460,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <span>or</span>
           <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
           <span class="spacer"></span>
-          <button class="btn small" id="zeroResetBtn" title="Position offset to 0: readings become the raw encoder angle (not the factory calibration; Factory reset restores that)">Clear offset</button>
+          <button class="btn small" id="zeroResetBtn" title="The servo's 0° back to its factory calibration">Factory zero</button>
         </div>
         <p class="hint" id="posAsHint">Writes the servo's position offset so the current position reads that angle. Saved on the servo.</p>
         <hr class="sep">
@@ -734,15 +734,22 @@ function rawSteps(id, steps) { return steps + (state.mirrored?.has(id) ? -1 : 1)
 function dialUpOf(id) { return Number((state.dialUps || {})[id] || 0); }
 // screenDeg: where a position is drawn on the dial (0 = top of the dial).
 function screenDeg(id, steps) { return rawSteps(id, steps) * DEG - dialUpOf(id); }
-function labelZero(id) { return rawSteps(id, 0) * DEG + zeroOf(id) - dialUpOf(id); }
+// Factory calibration: the PositionOffset a factory reset leaves (recorded in
+// config.toml), in logical steps. Angles are measured from it, so at the
+// factory state 0° is the factory-calibrated 0°.
+function factoryOffsetOf(id) { return Number((state.factoryOffsets || {})[id] || 0); }
+function calibSteps(id) { return (state.mirrored?.has(id) ? -1 : 1) * factoryOffsetOf(id); }
+// displayZero: everything subtracted from the servo's reading to get the shown angle.
+function displayZero(id) { return zeroOf(id) - calibSteps(id) * DEG; }
+function labelZero(id) { return rawSteps(id, 0) * DEG + displayZero(id) - dialUpOf(id); }
 function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
 function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
 // The servo reports positions within one turn even in multi-turn mode, so shown
 // angles are always 0..360.
-function vdeg(id, steps) { return wrap360(steps * DEG - zeroOf(id)); }
+function vdeg(id, steps) { return wrap360(steps * DEG - displayZero(id)); }
 // stepsFromVdeg: shown degrees -> steps for servo id.
-function stepsFromVdeg(id, d) { return Math.round(wrap360(d + zeroOf(id)) / DEG) % STEPS; }
+function stepsFromVdeg(id, d) { return Math.round(wrap360(d + displayZero(id)) / DEG) % STEPS; }
 const fmtDeg = (d) => `${d.toFixed(1)}°`;
 
 function groupOf(id) { return (state.groups || []).find((g) => g.members.includes(id)); }
@@ -1572,6 +1579,7 @@ function onState(m) {
   state.colors = m.colors || {};
   state.zeros = m.zeros || {};
   state.dialUps = m.dialUps || {};
+  state.factoryOffsets = m.factoryOffsets || {};
   state.groups = m.groups || [];
   $("mirrored").checked = state.mirrored.has(state.selected);
   // A group this window just created: open it.
@@ -1801,24 +1809,26 @@ $("colorPick").addEventListener("change", (e) => {
 // The servo's own zero, as an absolute angle on the encoder scale (what the
 // servo reads with position offset 0, i.e. the dial's raw frame). The field
 // always shows the zero currently saved on the servo.
-function servoZeroDeg(id) { return Math.round(wrap360(rawSteps(id, 0) * DEG) * 10) / 10; }
+// The servo's own zero, measured from its factory calibration: 0 = factory.
+function servoZeroDeg(id) { return Math.round(wrap360((rawSteps(id, 0) - calibSteps(id)) * DEG) * 10) / 10; }
 
 function renderPosAsHint() {
   const id = state.selected;
   if (id === null || state.selGroup) return;
   const z = servoZeroDeg(id);
   if (document.activeElement !== $("zeroAtDeg")) $("zeroAtDeg").value = z;
-  let t = z ? `Saved on the servo: its 0° is at the encoder's ${z}° mark (position offset ${offsetOf(id)} steps, ${(offsetOf(id) * DEG).toFixed(1)}°).`
-    : "Saved on the servo: no position offset (readings are the raw encoder angle).";
-  t += " After a factory reset the servo has its factory calibration offset, so this is usually not 0 then.";
-  t += " Set puts the servo's 0° at the angle you enter, measured on the encoder scale (no offset); Current position puts it where the arm is now. Every app sees the same angles. The arm doesn't move; the dial labels and readouts change.";
+  const fo = factoryOffsetOf(id);
+  let t = z ? `Saved on the servo: its 0° is ${z}° from the factory 0°.` : "Saved on the servo: the factory 0°.";
+  t += fo ? ` Factory calibration: ${fo} steps (${(fo * DEG).toFixed(1)}°), recorded at its factory reset; angles in this console are measured from it.`
+    : " The factory calibration isn't known for this servo (it's recorded by Factory reset), so angles are measured from the raw encoder.";
+  t += " Set puts the servo's 0° that many degrees from the factory 0°; Current position puts it where the arm is now. Every app sees the same angles. The arm doesn't move; the dial labels and readouts change.";
   if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
   if (zeroOf(id)) t += ` Setting it replaces the virtual 0° (${zeroOf(id)}°) of this console.`;
   if (state.mirrored?.has(id)) t += " This servo is mirrored: its dial turns the opposite way to its own arm, so it matches its partner.";
   $("posAsHint").textContent = t;
 }
 
-// setServoZero puts servo id's 0° at d° on the encoder scale.
+// setServoZero puts servo id's 0° d° from its factory 0°.
 async function setServoZero(d, what) {
   const id = state.selected, cur = servoZeroDeg(id);
   if (Math.abs(wrap360(d - cur + 180) - 180) < 0.05) return log(`Servo ${id}'s 0° is already at ${cur}°.`);
@@ -1830,22 +1840,22 @@ async function setServoZero(d, what) {
 $("zeroAtBtn").onclick = () => {
   const d = Math.round(Number($("zeroAtDeg").value) * 10) / 10;
   if (!(d >= 0 && d < 360)) return log("Angle must be 0–359.9°", "error");
-  setServoZero(d, `the encoder's ${d}° mark`);
+  setServoZero(d, `${d}° from the factory 0°`);
 };
 $("zeroAtHere").onclick = () => {
   const id = state.selected, f = state.fb[id];
   if (!f || f.error) return log("No position reading for this servo.", "error");
-  const d = Math.round(wrap360(rawSteps(id, f.position) * DEG) * 10) / 10; // the arm, on the encoder scale
-  setServoZero(d, `the current position (encoder ${d}°)`);
+  const d = Math.round(wrap360((rawSteps(id, f.position) - calibSteps(id)) * DEG) * 10) / 10; // the arm, from the factory 0°
+  setServoZero(d, `the current position (${d}° from the factory 0°)`);
 };
 $("zeroAtDeg").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("zeroAtBtn").click();
   if (e.key === "Escape") { $("zeroAtDeg").blur(); renderPosAsHint(); } // back to the saved zero
 });
 $("zeroResetBtn").onclick = async () => {
-  const id = state.selected, off = offsetOf(id);
-  if (!off) return log(`Servo ${id} has no position offset already.`);
-  if (!await ask(`Clear servo ${id}'s position offset (${off} steps → 0)?\n\nReadings become the raw encoder angle. This is not the factory calibration (Factory reset restores that). The arm stays where it is.`, "Clear")) return;
+  const id = state.selected;
+  if (!servoZeroDeg(id)) return log(`Servo ${id} is at its factory 0° already.`);
+  if (!await ask(`Put servo ${id}'s 0° back to its factory 0° (position offset ${offsetOf(id)} → ${factoryOffsetOf(id)} steps)?\n\nThe arm stays where it is.`, "Factory zero")) return;
   if (await cmd("zeroReset", {})) loadConfig(true);
 };
 
@@ -1872,7 +1882,7 @@ function renderZeroHint() {
   const pos = state.fb[svID]?.position;
   const at = (deg) => Math.round(wrap360(deg - z) * 10) / 10;
   let t = z ? `Straight up (0° physical) will read ${at(0)}°; ${z}° physical will read 0°.` : "No offset: angles are shown as the servo reports them.";
-  if (pos !== undefined) t += ` The current position will read ${at(pos * DEG)}°.`;
+  if (pos !== undefined) t += ` The current position will read ${at(pos * DEG + calibSteps(svID) * DEG)}°.`;
   $("svZeroHint").textContent = t;
 }
 $("svZero").addEventListener("input", renderZeroHint);

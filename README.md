@@ -157,6 +157,7 @@ Name = "Right"
 Mirrored = true
 Zero = 270.0   # virtual 0°: physical 270° is shown as 0°, straight up as 90°
 DialUp = 340.0 # dial orientation: the arm points physically up at encoder 340°
+FactoryOffset = 85 # factory calibration, recorded by Factory reset: angles are measured from it
 ```
 
 **Groups** (sidebar → New group) drive their members together from one console: one needle and
