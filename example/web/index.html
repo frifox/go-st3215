@@ -499,6 +499,22 @@ td .num { width: 90px; padding: 3px 6px; }
         </div>
         <hr class="sep">
         <div class="row">
+          <span>Limit motion range to</span>
+          <input class="num" type="number" id="limMin" step="0.1" style="width:80px">
+          <span>° to</span>
+          <input class="num" type="number" id="limMax" step="0.1" style="width:80px">
+          <span>°</span>
+          <button class="btn" id="limSet">Set</button>
+          <button class="btn" id="limClear" title="Allow the whole turn again (single-turn)">Clear</button>
+        </div>
+        <div class="row">
+          <span>Set current position as</span>
+          <button class="btn small" id="limMinHere">Min</button>
+          <button class="btn small" id="limMaxHere">Max</button>
+        </div>
+        <p class="hint" id="limHint"></p>
+        <hr class="sep">
+        <div class="row">
           <span>Change Servo ID to</span>
           <input class="num" type="number" id="newId" min="0" max="253" style="width:90px">
           <button class="btn" id="setIdBtn">Set ID</button>
@@ -975,6 +991,7 @@ function applyMode() {
 function selectServo(id) {
   state.selGroup = null;
   state.selected = id;
+  delete $("limMin").dataset.pending; // a half-entered range belongs to the previous servo
   document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "item-" + id));
   applyMode();
   stopNameEdit();
@@ -1235,6 +1252,7 @@ function onConfig(m) {
   buildTicks(labelZero(members()[0] ?? m.id), signedOf(members()[0] ?? m.id)); // the offset may have changed
   setLimitArc(c.minAngleLimit, c.maxAngleLimit);
   renderPosAsHint();
+  renderLimits();
   const t = $("target");
   if (isMultiTurn(c)) { t.min = -30719; t.max = 30719; } else { t.min = c.minAngleLimit; t.max = c.maxAngleLimit; }
   // Sliders follow the servo when loading a servo or when another window
@@ -1968,6 +1986,70 @@ $("zeroAtDeg").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("zeroAtBtn").click();
   if (e.key === "Escape") { $("zeroAtDeg").blur(); renderPosAsHint(); } // back to the saved zero
 });
+
+// ---------------------------------------------------------------- motion range
+// Angle limits in the degrees the dial shows; the range runs clockwise from
+// Min to Max. The fields show the limits saved on the servo unless being edited.
+const rnd1 = (d) => Math.round(d * 10) / 10;
+function limitsOf(id) {
+  const c = state.cfg[id];
+  if (!c || multiTurnOf(id) || (c.minAngleLimit === 0 && c.maxAngleLimit >= STEPS - 1)) return null;
+  return [c.minAngleLimit, c.maxAngleLimit];
+}
+function renderLimits() {
+  const id = state.selected;
+  if (id === null || state.selGroup) return;
+  const lim = limitsOf(id), editing = [$("limMin"), $("limMax")].includes(document.activeElement);
+  if (!editing && !$("limMin").dataset.pending) {
+    $("limMin").value = lim ? rnd1(vdeg(id, lim[0])) : "";
+    $("limMax").value = lim ? rnd1(vdeg(id, lim[1])) : "";
+  }
+  $("limHint").textContent = lim
+    ? `Limited to ${fmtDeg(vdeg(id, lim[0]))} … ${fmtDeg(vdeg(id, lim[1]))} clockwise (${rnd1((lim[1] - lim[0]) * DEG)}°, steps ${lim[0]}…${lim[1]}). Saved on the servo: it won't take goals outside, from any app.`
+    : multiTurnOf(id) ? "No limit (multi-turn). Setting a range turns multi-turn off." : "No limit: the whole turn is allowed.";
+}
+function markLimPending() { $("limMin").dataset.pending = "1"; }
+$("limMin").addEventListener("input", markLimPending);
+$("limMax").addEventListener("input", markLimPending);
+function limHere(field) {
+  const id = state.selected, f = state.fb[id];
+  if (!f || f.error) return log("No position reading for this servo.", "error");
+  $(field).value = rnd1(vdeg(id, f.position));
+  markLimPending();
+}
+$("limMinHere").onclick = () => limHere("limMin");
+$("limMaxHere").onclick = () => limHere("limMax");
+$("limSet").onclick = async () => {
+  const id = state.selected;
+  const min = rnd1(Number($("limMin").value)), max = rnd1(Number($("limMax").value));
+  if ($("limMin").value === "" || $("limMax").value === "" || !isFinite(min) || !isFinite(max)) return log("Enter both ends of the range.", "error");
+  const span = rnd1(wrap360(max - min));
+  if (span < 0.2) return log("The range must be more than 0°.", "error");
+  const lo = stepsFromVdeg(id, min), crosses = lo + Math.round(span / DEG) > STEPS - 1;
+  const f = state.fb[id], cur = f && !f.error ? vdeg(id, f.position) : null;
+  const outside = cur !== null && wrap360(cur - min) > span + 0.05;
+  if (!await ask(`Limit servo ${id} to ${fmtDeg(min)} … ${fmtDeg(max)}, clockwise (${span}° of travel)?\n\n` +
+    "The limits are saved on the servo, so it refuses goals outside the range from any app." +
+    (multiTurnOf(id) ? " Multi-turn turns off (the range never needs to cross 0° anyway)." : "") +
+    (crosses ? "\n\nThe range crosses the servo's own 0, which limits can't do, so the servo's 0 is moved (saved on the servo). The angles shown here stay the same." : "") +
+    (outside ? `\n\nThe arm is outside this range now (${fmtDeg(cur)}): the servo will go to the nearest limit when it next moves.` : ""), "Set")) return;
+  if (await cmd("limits", { minDeg: min, maxDeg: max }, `range limited to ${fmtDeg(min)} … ${fmtDeg(max)}`)) {
+    delete $("limMin").dataset.pending;
+    loadConfig(true);
+  }
+};
+$("limClear").onclick = async () => {
+  const id = state.selected;
+  if (!limitsOf(id)) return log(`Servo ${id} has no range limit.`);
+  if (!await ask(`Remove servo ${id}'s range limit? It may then move over the whole turn.`, "Clear")) return;
+  if (await cmd("multiturn", { on: false }, "range limit cleared")) { delete $("limMin").dataset.pending; loadConfig(true); }
+};
+for (const el of [$("limMin"), $("limMax")]) {
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("limSet").click();
+    if (e.key === "Escape") { delete $("limMin").dataset.pending; el.blur(); renderLimits(); }
+  });
+}
 
 // ---------------------------------------------------------------- edit servo dialog
 let svID = null;

@@ -567,6 +567,8 @@ type request struct {
 	DialUp   float64    `json:"dialUp"`  // for "servoEdit": factory-scale angle that is physically up
 	Signed   bool       `json:"signed"`  // for "servoEdit": show angles as -180..180
 	Degrees  float64    `json:"degrees"` // for "zeroAt": where 0° goes, in degrees on the encoder scale (offset 0)
+	MinDeg   float64    `json:"minDeg"`  // for "limits": range start, in degrees as the console shows them
+	MaxDeg   float64    `json:"maxDeg"`  // for "limits": range end (clockwise from MinDeg)
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -856,7 +858,7 @@ func onOff(on bool) string {
 // changesServo lists the commands after which a fresh config is broadcast.
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
-	"multiturn": true, "zeroHere": true, "torqueLimit": true, "write": true, "tune": true,
+	"multiturn": true, "limits": true, "zeroHere": true, "torqueLimit": true, "write": true, "tune": true,
 	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
@@ -1030,6 +1032,67 @@ func (s *server) triedValues(id uint8, regs []registerInfo) (map[string]int, map
 	return out, saved
 }
 
+// setLimits restricts the servo to the arc from req.MinDeg clockwise to
+// req.MaxDeg (console degrees: the servo reading minus the virtual 0°). Angle
+// limits are a plain min < max range of readings, so an arc that crosses the
+// servo's own 0 is first moved clear of it by shifting the servo's zero; the
+// virtual 0° and dial orientation shift along, so the console shows the same
+// angles. Multi-turn mode ends (it is limits 0/0).
+func (s *server) setLimits(sv *st3215.Servo, req request) error {
+	wrap := func(d float64) float64 { return math.Mod(math.Mod(d, 360)+360, 360) }
+	toSteps := func(d float64) int { return int(math.Round(d / st3215.DegreesPerStep)) }
+	sc := s.cfg.get(req.ID)
+	span := toSteps(wrap(req.MaxDeg - req.MinDeg))
+	if span < 2 || span > st3215.StepsPerRev-2 {
+		return fmt.Errorf("the range must be more than 0° and less than a full turn")
+	}
+	lo := toSteps(wrap(req.MinDeg+sc.Zero)) % st3215.StepsPerRev
+	if lo+span > st3215.StepsPerRev-1 {
+		// Readings drop by shift. Shift by whole quarter turns where that fits
+		// (any range up to 270°), so the virtual 0° moves by exactly 90° and
+		// the console angles stay exact; otherwise center the arc on 2048.
+		shift, best := st3215.CircularDiff(lo, st3215.StepsPerRev/2-span/2), st3215.StepsPerRev
+		for k := 1; k < 4; k++ {
+			q := k * st3215.StepsPerRev / 4
+			nlo := ((lo-q)%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
+			if c := abs(nlo + span/2 - st3215.StepsPerRev/2); nlo+span <= st3215.StepsPerRev-1 && c < best {
+				shift, best = st3215.CircularDiff(q, 0), c
+			}
+		}
+		z0, err := sv.Zero()
+		if err != nil {
+			return err
+		}
+		if err := sv.SetZeroAt(shift); err != nil {
+			return err
+		}
+		z1, err := sv.Zero()
+		if err != nil {
+			return err
+		}
+		shift = st3215.CircularDiff(z1, z0) // as applied (an offset of -2048 can't be stored: one step off)
+		d := float64(shift) * st3215.DegreesPerStep
+		round := func(v float64) float64 { return math.Round(wrap(v)*10) / 10 }
+		if err := s.cfg.update(req.ID, func(c *servoConfig) {
+			c.Zero, c.DialUp = round(c.Zero-d), round(c.DialUp-d)
+		}); err != nil {
+			return err
+		}
+		s.broadcastState()
+		lo = ((lo-shift)%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
+		s.logf("info", "servo %d: 0° moved by %.1f° (saved on the servo) so the range doesn't cross it; the console angles are unchanged", req.ID, d)
+	}
+	if err := sv.SetAngleLimits(lo, lo+span); err != nil {
+		return err
+	}
+	// A goal kept from multi-turn mode may carry a turn count: hold here instead.
+	if err := sv.Stop(); err != nil {
+		return err
+	}
+	s.logf("info", "servo %d: motion limited to %.1f°…%.1f° (steps %d…%d, saved on the servo)", req.ID, req.MinDeg, req.MaxDeg, lo, lo+span)
+	return nil
+}
+
 func (s *server) exec(c *client, req request) error {
 	switch req.Type {
 	case "ports":
@@ -1171,6 +1234,8 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return nil
 	case "multiturn":
 		return sv.SetMultiTurn(req.On)
+	case "limits":
+		return s.setLimits(sv, req)
 	case "torqueLimit":
 		return sv.SetTorqueLimit(req.Percent)
 	case "factoryReset":
@@ -1262,4 +1327,11 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return nil
 	}
 	return fmt.Errorf("unknown command %q", req.Type)
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
