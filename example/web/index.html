@@ -228,6 +228,7 @@ td .num { width: 90px; padding: 3px 6px; }
         <span class="spacer"></span>
         <button class="btn primary" id="scanBtn">Scan</button>
         <button class="btn" id="cancelScanBtn" hidden>Cancel</button>
+        <button class="btn primary" id="finishScanBtn" hidden title="Stop scanning and use the servos found so far">Done</button>
       </div>
       <div class="progress"><div class="bar" id="scanBar"></div></div>
       <div class="hint" id="scanText" style="margin-top:6px">Each ID takes about 15 ms; a full scan takes about 4 s.</div>
@@ -848,6 +849,7 @@ function renderView() {
   $("scanBoard").textContent = s.port === "sim" ? "simulator" : s.port || "";
   $("scanBtn").hidden = s.scanning;
   $("cancelScanBtn").hidden = !s.scanning;
+  $("finishScanBtn").hidden = !s.scanning;
   ["scanFirst", "scanLast", "quickRange", "fullRange", "backToBoard"].forEach((id) => ($(id).disabled = s.scanning));
   $("openConsole").hidden = s.scanning || !s.scanned || !s.ids.length;
   if (!s.scanning) {
@@ -928,6 +930,7 @@ $("showAllPorts").onchange = renderPorts;
 $("connectBtn").onclick = connectBoard;
 $("scanBtn").onclick = startScan;
 $("cancelScanBtn").onclick = () => send("cancelScan").catch(() => {});
+$("finishScanBtn").onclick = () => send("finishScan").catch(() => {});
 $("quickRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 20; };
 $("fullRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 253; };
 $("openConsole").onclick = () => { state.wantScan = false; renderView(); };

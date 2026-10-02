@@ -119,7 +119,7 @@ type server struct {
 	ids        []uint8 // servos found by the last scan
 	scanned    bool    // a scan has completed on this connection
 	scanning   bool
-	scanCancel context.CancelFunc
+	scanCancel context.CancelCauseFunc
 	mirrored   map[uint8]bool // IDs set as mirrored; reapplied on reconnect
 	clients    map[*client]struct{}
 }
@@ -289,7 +289,7 @@ func (s *server) connect(port string, baud int) error {
 func (s *server) disconnect() {
 	s.mu.Lock()
 	if s.scanCancel != nil {
-		s.scanCancel()
+		s.scanCancel(nil)
 	}
 	wasConnected := s.port != ""
 	s.mu.Unlock()
@@ -310,16 +310,20 @@ func (s *server) disconnect() {
 	}
 }
 
+// errScanFinished is the cancel cause used by "Done": stop scanning but keep
+// the servos found so far.
+var errScanFinished = errors.New("scan finished early")
+
 func (s *server) scan(ctx context.Context, first, last uint8) error {
 	s.mu.Lock()
 	if s.scanning {
 		s.mu.Unlock()
 		return errors.New("a scan is already running")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
 	s.scanning, s.scanCancel = true, cancel
 	s.mu.Unlock()
-	defer cancel()
+	defer cancel(nil)
 	s.broadcastState()
 
 	total := int(last) - int(first) + 1
@@ -334,6 +338,10 @@ func (s *server) scan(ctx context.Context, first, last uint8) error {
 		})
 		return err
 	})
+	early := err != nil && errors.Is(context.Cause(ctx), errScanFinished)
+	if early {
+		err = nil // "Done": keep the servos found so far
+	}
 
 	s.mu.Lock()
 	s.scanning, s.scanCancel = false, nil
@@ -342,6 +350,8 @@ func (s *server) scan(ctx context.Context, first, last uint8) error {
 	}
 	s.mu.Unlock()
 	switch {
+	case early:
+		s.logf("info", "scan stopped early, using %d servo(s) found so far: %v", len(found), found)
 	case errors.Is(err, context.Canceled):
 		s.logf("info", "scan cancelled")
 	case err != nil:
@@ -590,10 +600,14 @@ func (s *server) exec(c *client, req request) error {
 			return fmt.Errorf("invalid ID range %d..%d", req.First, last)
 		}
 		return s.scan(context.Background(), req.First, last)
-	case "cancelScan":
+	case "cancelScan", "finishScan":
+		cause := error(nil) // cancel: discard results
+		if req.Type == "finishScan" {
+			cause = errScanFinished
+		}
 		s.mu.Lock()
 		if s.scanCancel != nil {
-			s.scanCancel()
+			s.scanCancel(cause)
 		}
 		s.mu.Unlock()
 		return nil
