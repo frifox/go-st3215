@@ -166,6 +166,10 @@ td .num { width: 90px; padding: 3px 6px; }
 #tuneStatus.warn { color: var(--warn); }
 .tune-row .unit { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
 @media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px; } .tune-row .unit { display: none; } }
+/* confirmation dialog */
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .45); display: grid; place-items: center; padding: 16px; }
+.modal { width: min(440px, 100%); box-shadow: 0 10px 40px rgba(0, 0, 0, .35); }
+.modal-text { white-space: pre-wrap; line-height: 1.5; }
 /* setup steps */
 .wizard { max-width: 760px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
 .steps { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
@@ -449,6 +453,18 @@ td .num { width: 90px; padding: 3px 6px; }
       <div id="log"></div>
     </section>
   </main>
+</div>
+
+<div class="modal-backdrop" id="askModal" hidden>
+  <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="askText">
+    <div class="card-body">
+      <div id="askText" class="modal-text"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px">
+        <button class="btn" id="askCancel">Cancel</button>
+        <button class="btn primary" id="askOk">OK</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -791,7 +807,7 @@ function renderRegisters(regs) {
       b.onclick = async () => {
         const v = Number(inp.value);
         if (r.name === "ID" || r.name === "BaudRate") {
-          if (!confirm(`Changing ${r.name} makes the servo unreachable under its current settings. Continue?`)) return;
+          if (!await ask(`Changing ${r.name} makes the servo unreachable under its current settings. Continue?`)) return;
         }
         if (await cmd("write", { register: r.name, value: v }, `${r.name} ← ${v}`)) loadConfig(false);
       };
@@ -912,13 +928,13 @@ $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
 };
 $("calibBtn").onclick = async () => {
-  if (!confirm("Make the current position read 2048 (center)? This is saved in EEPROM.")) return;
+  if (!await ask("Make the current position read 2048 (center)? This is saved in EEPROM.")) return;
   if (await cmd("calibrate", {}, "center calibrated")) loadConfig(true);
 };
 $("setIdBtn").onclick = async () => {
   const newId = Number($("newId").value);
   if ($("newId").value === "" || newId < 0 || newId > 253) return log("ID must be 0..253", "error");
-  if (!confirm(`Change servo ${state.selected} to ID ${newId}?`)) return;
+  if (!await ask(`Change servo ${state.selected} to ID ${newId}?`)) return;
   const old = state.selected;
   if (await cmd("setid", { newId }, `ID ${old} → ${newId}`)) { state.hist[newId] = state.hist[old]; selectServo(newId); }
 };
@@ -1047,11 +1063,11 @@ async function applyTuning(save) {
     // Nothing tracked (e.g. values tried before the server restarted): save
     // everything currently active on the servo.
     values = TUNE_ITEMS.filter((it) => state.tune.cur[it.reg] !== undefined).map((it) => ({ register: it.reg, value: state.tune.cur[it.reg] }));
-    if (!confirm(`No unsaved changes are tracked. Save all ${values.length} current tuning values to servo ${state.selected}'s EEPROM?`)) return;
+    if (!await ask(`No unsaved changes are tracked. Save all ${values.length} current tuning values to servo ${state.selected}'s EEPROM?`)) return;
     return void (await cmd("tune", { values, save: true }, `saved all ${values.length} tuning values`) && loadConfig(false));
   }
   if (!values.length) return;
-  if (save && !confirm(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?\n\n` +
+  if (save && !await ask(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?\n\n` +
     values.map((v) => `${v.register} = ${v.value}`).join("\n"))) return;
   const ok = await cmd("tune", { values, save }, `tuned ${values.length} value(s), ${save ? "saved" : "until power-off"}`);
   if (ok) {
@@ -1208,6 +1224,33 @@ const toBoard = async () => {
 };
 $("toBoardBtn").onclick = toBoard;
 $("backToBoard").onclick = toBoard;
+
+// ---------------------------------------------------------------- confirmation dialog
+// In-page replacement for window.confirm(), which some embedded browsers
+// suppress (it returns false without showing anything).
+function ask(message, okLabel = "OK") {
+  return new Promise((resolve) => {
+    const modal = $("askModal");
+    $("askText").textContent = message;
+    $("askOk").textContent = okLabel;
+    modal.hidden = false;
+    $("askOk").focus();
+    const done = (result) => {
+      modal.hidden = true;
+      document.removeEventListener("keydown", onKey, true);
+      $("askOk").onclick = $("askCancel").onclick = modal.onclick = null;
+      resolve(result);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); done(false); }
+      if (e.key === "Enter") { e.preventDefault(); done(true); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    $("askOk").onclick = () => done(true);
+    $("askCancel").onclick = () => done(false);
+    modal.onclick = (e) => { if (e.target === modal) done(false); };
+  });
+}
 
 // ---------------------------------------------------------------- log
 function log(msg, level = "info") {
