@@ -93,7 +93,8 @@ func TestMirroredFeedback(t *testing.T) {
 		t.Fatal("raw read mirrored", v)
 	}
 
-	// Stop holds the physical position.
+	// Stop holds the physical position (of a servo holding torque).
+	p.servos[2].mem[RegTorqueEnable.Addr] = 1
 	if err := b.Servo(2).Stop(); err != nil {
 		t.Fatal(err)
 	}

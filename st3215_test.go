@@ -419,6 +419,7 @@ func TestMoveToShortest(t *testing.T) {
 		t.Fatal(err)
 	}
 	putU16(p.servos[1].mem[RegGoalPosition.Addr:], 4000) // settled at 4000
+	p.servos[1].mem[RegTorqueEnable.Addr] = 1
 	if goal, err := s.MoveToShortest(100, 0, 0); err != nil || goal != 4196 || physGoal(p, 1) != 4196 {
 		t.Fatal("multi-turn", goal, err)
 	}
@@ -440,6 +441,7 @@ func TestMultiTurnReportedPositionWraps(t *testing.T) {
 		phys := func(logical int) int { return mirrorPos(mirrored, logical) }
 		putU16(p.servos[1].mem[RegGoalPosition.Addr:], encodeSignMag(phys(7100), 15))
 		putU16(p.servos[1].mem[RegPresentPosition.Addr:], uint16(((phys(3004)%4096)+4096)%4096))
+		p.servos[1].mem[RegTorqueEnable.Addr] = 1 // holding: the goal has the turn count
 
 		if abs, err := s.AbsolutePosition(); err != nil || abs != 7100 {
 			t.Fatalf("mirrored=%v: AbsolutePosition %d %v", mirrored, abs, err)
@@ -588,6 +590,48 @@ func TestSetZeroAbsolute(t *testing.T) {
 		}
 		if z, _ := sv.Zero(); z != 0 {
 			t.Fatal("back to factory", z)
+		}
+	}
+}
+
+// Torque off: the goal register may be stale and must not decide the turn
+// (on hardware a stale 4011 goal made a move to 0° spin a whole turn). If it
+// disagrees with the reading, refuse instead of guessing.
+func TestAbsolutePositionTorqueOff(t *testing.T) {
+	b, p := newTestBus(t, 1)
+	s := b.Servo(1)
+	if err := s.SetMultiTurn(true); err != nil {
+		t.Fatal(err)
+	}
+	m := p.servos[1].mem[:]
+	putU16(m[RegGoalPosition.Addr:], 4011) // left from earlier
+	putU16(m[RegPresentPosition.Addr:], 1)
+	m[RegTorqueEnable.Addr] = 0
+	if _, err := s.AbsolutePosition(); !errors.Is(err, ErrTurnUnknown) {
+		t.Fatal("want ErrTurnUnknown, got", err)
+	}
+	n := len(p.written)
+	if _, err := s.MoveToShortest(0, 0, 0); !errors.Is(err, ErrTurnUnknown) {
+		t.Fatal("move must be refused, got", err)
+	}
+	for _, pkt := range p.written[n:] {
+		if pkt[4] == InstWrite && pkt[5] == RegAcceleration.Addr {
+			t.Fatal("a goal was written")
+		}
+	}
+	// Goal and reading agree (hand-moved a little): fine.
+	putU16(m[RegGoalPosition.Addr:], 20)
+	if abs, err := s.AbsolutePosition(); err != nil || abs != 1 {
+		t.Fatal(abs, err)
+	}
+	// Stop with torque off writes nothing.
+	n = len(p.written)
+	if err := s.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	for _, pkt := range p.written[n:] {
+		if pkt[4] == InstWrite {
+			t.Fatal("Stop wrote with torque off")
 		}
 	}
 }

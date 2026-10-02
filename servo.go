@@ -738,11 +738,17 @@ func CircularDiff(a, b int) int {
 // In multi-turn mode the ST3215 reports its position within one turn
 // (0..4095) but interprets goals in its own, unbounded turn count, so the
 // reported position can be whole turns away from where a goal is measured
-// from. The goal register keeps that turn count, so the present position is
-// taken as the equivalent position nearest the current goal. This is exact
-// whenever the servo is within half a turn of its goal (always true after a
-// move has finished, or during any move shorter than half a turn). In
-// single-turn mode it is just Position.
+// from. While the servo holds torque, the goal register keeps that turn
+// count, so the present position is taken as the equivalent position nearest
+// the current goal. This is exact whenever the servo is within half a turn
+// of its goal (always true after a move has finished, or during any move
+// shorter than half a turn).
+//
+// With torque off neither source is reliable: the goal may be stale (seen on
+// hardware: a 4011 goal left from earlier made a move to 0° spin a full turn)
+// and the reported position lacks the turn. If both agree that is the
+// answer; otherwise ErrTurnUnknown is returned rather than a guess that could
+// send the servo a whole turn. In single-turn mode it is just Position.
 func (s *Servo) AbsolutePosition() (int, error) {
 	lo, hi, err := s.AngleLimits()
 	if err != nil {
@@ -752,13 +758,28 @@ func (s *Servo) AbsolutePosition() (int, error) {
 	if err != nil || lo != 0 || hi != 0 {
 		return cur, err
 	}
+	holding, err := s.TorqueEnabled()
+	if err != nil {
+		return 0, err
+	}
 	goal, err := s.Read(RegGoalPosition)
 	if err != nil {
 		return 0, err
 	}
 	goal = mirrorPos(s.Mirrored(), goal)
-	return goal + CircularDiff(cur, goal), nil
+	fromGoal := goal + CircularDiff(cur, goal)
+	if !holding && fromGoal != cur {
+		return 0, fmt.Errorf("%w (servo %d: torque is off and its goal %d is a turn away from the reading %d)", ErrTurnUnknown, s.id, goal, cur)
+	}
+	return fromGoal, nil
 }
+
+// ErrTurnUnknown is returned in multi-turn mode when the servo's turn count
+// can't be determined (torque off with a stale goal). Moving then could take
+// the servo a whole turn the wrong way. Turn torque on where the servo is
+// (EnableTorque holds the goal, so write a goal first only if it is known),
+// or switch multi-turn off and on to start counting from the reading.
+var ErrTurnUnknown = errors.New("st3215: turn count unknown")
 
 // ShortestGoal returns the goal that reaches the angle of pos (taken modulo
 // one turn) the short way round from the present position, kept within
@@ -824,6 +845,9 @@ func (s *Servo) StepBy(steps, speed int, acc uint8) error {
 // Stop holds the servo at its present position (ModePosition). In ModeWheel
 // use SetWheelSpeed(0, acc); in ModePWM use SetPWM(0).
 func (s *Servo) Stop() error {
+	if holding, err := s.TorqueEnabled(); err != nil || !holding {
+		return err // nothing is driving it; writing a goal would switch torque on
+	}
 	pos, err := s.AbsolutePosition() // with the turn count, so it never spins a turn
 	if err != nil {
 		return err
