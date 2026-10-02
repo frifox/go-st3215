@@ -13,16 +13,18 @@ import (
 // plant is a crude servo + load: inertia, friction, and a controller shaped
 // by P, D, start force and dead zone. It runs on virtual time (5 ms per read).
 type plant struct {
-	p          Params
-	pos, vel   float64
-	goal       float64
-	now        time.Time
-	members    int
-	offset     float64 // second member's position offset (group test)
-	failAt     int     // report overload after this many reads (0 = never)
-	reads      int
-	applied    []Params
-	inertiaMul float64
+	p           Params
+	pos, vel    float64
+	goal        float64
+	now         time.Time
+	members     int
+	offset      float64 // second member's position offset (group test)
+	failAt      int     // report overload after this many reads (0 = never)
+	reads       int
+	applied     []Params
+	inertiaMul  float64
+	glitchEvery int // report one bogus temperature every n reads
+	hotAfter    int // report a sustained high temperature after n reads
 }
 
 func newPlant(p Params) *plant {
@@ -72,6 +74,13 @@ func (f *plant) Read() ([]Reading, error) {
 	fb := st3215.Feedback{Position: int(math.Round(f.pos)), Moving: math.Abs(f.vel) > 5, Load: 0, Current: math.Abs(f.vel) / 5}
 	if f.failAt > 0 && f.reads > f.failAt {
 		fb.Status = st3215.StatusOverload
+	}
+	fb.Temperature = 32
+	if f.glitchEvery > 0 && f.reads%f.glitchEvery == 0 {
+		fb.Temperature = 91 // a single bad sample
+	}
+	if f.hotAfter > 0 && f.reads > f.hotAfter {
+		fb.Temperature = 80 // really overheating
 	}
 	out := []Reading{{ID: 1, Feedback: fb}}
 	if f.members > 1 {
@@ -166,5 +175,23 @@ func TestRefusesWithoutRoom(t *testing.T) {
 	f.pos, f.goal = 10, 10 // at the lower angle limit
 	if _, err := Run(context.Background(), f, Options{}); err == nil {
 		t.Fatal("expected an error near the limit")
+	}
+}
+
+func TestTemperatureGlitchIgnored(t *testing.T) {
+	f := newPlant(Params{P: 32, D: 48, MinStart: 16, DeadZone: 1})
+	f.glitchEvery = 500
+	if _, err := Run(context.Background(), f, Options{}); err != nil {
+		t.Fatal("a single bad temperature sample aborted the run:", err)
+	}
+}
+
+func TestSustainedOverheatAborts(t *testing.T) {
+	start := Params{P: 32, D: 48, MinStart: 16, DeadZone: 1}
+	f := newPlant(start)
+	f.hotAfter = 1500
+	_, err := Run(context.Background(), f, Options{})
+	if !errors.Is(err, ErrAborted) || f.p != start {
+		t.Fatal("want abort with values restored, got", err, f.p)
 	}
 }

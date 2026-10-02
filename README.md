@@ -106,7 +106,7 @@ The `autotune` sub-package finds position-loop settings by experiment: it applie
 each response for accurate and calm motion (overshoot, wobble, hunting, and for groups how much the
 members disagree). It hill-climbs P, D, start force and dead zone (I is left alone) in about 15–30
 tests. Moves stay within ±35° and anything beyond 45° aborts; faults, high current or temperature
-abort too, and an abort restores the original values.
+abort too (temperature and current only when they stay over the limit for 300 ms / 100 ms, so a single bad reading is ignored), and an abort restores the original values.
 
 ```go
 res, err := autotune.Run(ctx, autotune.ForGroup(bus.Group(1, 2)), autotune.Options{})

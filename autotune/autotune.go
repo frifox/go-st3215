@@ -167,6 +167,27 @@ type run struct {
 	best        Trial
 	beforeTrial Trial
 	total       int
+	over        map[string]time.Time // when a limit was first exceeded, per kind and servo
+}
+
+// sustained tracks a limit condition per kind and servo and reports, once it
+// has held continuously for at least min, how long it has held.
+func (r *run) sustained(kind string, id uint8, exceeded bool, now time.Time, min time.Duration) (time.Duration, bool) {
+	if r.over == nil {
+		r.over = map[string]time.Time{}
+	}
+	key := fmt.Sprintf("%s/%d", kind, id)
+	if !exceeded {
+		delete(r.over, key)
+		return 0, false
+	}
+	since, ok := r.over[key]
+	if !ok {
+		r.over[key] = now
+		return 0, min <= 0
+	}
+	d := now.Sub(since)
+	return d, d >= min
 }
 
 func (r *run) run(ctx context.Context) (Result, error) {
@@ -432,13 +453,16 @@ func (r *run) move(ctx context.Context, from, target int, t0 time.Time) (Metrics
 			if bad := f.Status & (st3215.StatusOverload | st3215.StatusCurrent | st3215.StatusTemperature | st3215.StatusVoltage); bad != 0 {
 				return m, trace, fmt.Errorf("%w: servo %d reports %s", ErrAborted, f.ID, bad)
 			}
-			if math.Abs(f.Current) > r.opt.MaxMA {
-				return m, trace, fmt.Errorf("%w: servo %d current %.0f mA", ErrAborted, f.ID, f.Current)
+			// Limits must hold for a while: single bad samples happen at
+			// these read rates (seen on hardware: one 91 °C reading from a
+			// servo at 32 °C), and real overheating builds up slowly.
+			if d, ok := r.sustained("current", f.ID, math.Abs(f.Current) > r.opt.MaxMA, now, 100*time.Millisecond); ok {
+				return m, trace, fmt.Errorf("%w: servo %d current %.0f mA for %v", ErrAborted, f.ID, f.Current, d.Round(time.Millisecond))
 			}
-			if f.Temperature > r.opt.MaxTemp {
-				return m, trace, fmt.Errorf("%w: servo %d at %d °C", ErrAborted, f.ID, f.Temperature)
+			if d, ok := r.sustained("temp", f.ID, f.Temperature > r.opt.MaxTemp, now, 300*time.Millisecond); ok {
+				return m, trace, fmt.Errorf("%w: servo %d at %d °C for %v", ErrAborted, f.ID, f.Temperature, d.Round(time.Millisecond))
 			}
-			if abs(f.Position-r.start) > SafeRange {
+			if _, ok := r.sustained("range", f.ID, abs(f.Position-r.start) > SafeRange, now, 30*time.Millisecond); ok {
 				return m, trace, fmt.Errorf("%w: servo %d moved more than %d steps from the start (position %d)", ErrAborted, f.ID, SafeRange, f.Position)
 			}
 			id := int(f.ID)
