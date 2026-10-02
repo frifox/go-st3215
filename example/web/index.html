@@ -709,16 +709,11 @@ function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
 function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
 function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
-function vdeg(id, steps) {
-  const d = steps * DEG - zeroOf(id);
-  return multiTurnOf(id) ? d : wrap360(d);
-}
+// The servo reports positions within one turn even in multi-turn mode, so shown
+// angles are always 0..360.
+function vdeg(id, steps) { return wrap360(steps * DEG - zeroOf(id)); }
 // stepsFromVdeg: shown degrees -> steps for servo id.
-function stepsFromVdeg(id, d) {
-  let raw = d + zeroOf(id);
-  if (!multiTurnOf(id)) raw = wrap360(raw);
-  return Math.round(raw / DEG);
-}
+function stepsFromVdeg(id, d) { return Math.round(wrap360(d + zeroOf(id)) / DEG) % STEPS; }
 const fmtDeg = (d) => `${d.toFixed(1)}°`;
 
 function groupOf(id) { return (state.groups || []).find((g) => g.members.includes(id)); }
@@ -728,15 +723,15 @@ function members() { const g = curGroup(); return g ? g.members : state.selected
 
 // ctl sends a Control-card command to the selected group, or to the selected
 // servo. Moving a grouped servo on its own asks first (once per servo).
-const MOTION = new Set(["move", "step", "wheel", "pwm"]);
+const MOTION = new Set(["move", "step", "wheel", "pwm", "angle", "jog"]);
 state.soloOk = new Set();
 async function ctl(type, payload = {}, msg) {
   const g = curGroup();
   if (g) {
     try {
-      await send(type, { group: g.key, id: g.members[0], ...payload });
+      const res = await send(type, { group: g.key, id: g.members[0], ...payload });
       if (msg) log(`${g.name}: ${msg}`);
-      return true;
+      return res;
     } catch (e) {
       log(`${g.name}: ${type}: ${e.message}`, "error");
       return false;
@@ -753,9 +748,9 @@ async function ctl(type, payload = {}, msg) {
 // cmd sends a command for the selected servo and logs failures.
 async function cmd(type, payload = {}, msg) {
   try {
-    await send(type, { id: state.selected, ...payload });
+    const res = await send(type, { id: state.selected, ...payload });
     if (msg) log(msg);
-    return true;
+    return res;
   } catch (e) {
     log(`${type}: ${e.message}`, "error");
     return false;
@@ -774,7 +769,7 @@ function onMessage(m) {
     case "log": log(m.message, m.level); break;
     case "result": {
       const p = state.pending.get(m.seq);
-      if (p) { state.pending.delete(m.seq); m.ok ? p.resolve() : p.reject(new Error(m.error)); }
+      if (p) { state.pending.delete(m.seq); m.ok ? p.resolve(m) : p.reject(new Error(m.error)); }
       break;
     }
   }
@@ -1078,8 +1073,7 @@ $("dial").addEventListener("click", (e) => {
   const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
   let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
   if (deg < 0) deg += 360;
-  setTarget(shortestTarget(Math.round(deg / DEG) % STEPS));
-  move();
+  moveAngle(Math.round(deg / DEG) % STEPS);
 });
 
 // ---------------------------------------------------------------- chart
@@ -1239,7 +1233,7 @@ bindPair("target", (ev) => {
     followTimer = setTimeout(() => { followTimer = null; move(true); }, 60);
   }
 });
-$("targetDegNum").addEventListener("change", () => setTarget(shortestTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value)))));
+$("targetDegNum").addEventListener("change", () => setTarget(nearestGoal(stepsFromVdeg(state.selected, Number($("targetDegNum").value)))));
 // Enter in either target field moves there right away.
 $("targetNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1248,8 +1242,7 @@ $("targetNum").addEventListener("keydown", (e) => {
 });
 $("targetDegNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  setTarget(shortestTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value))));
-  move();
+  moveAngle(stepsFromVdeg(state.selected, Number($("targetDegNum").value)));
 });
 bindPair("speed");
 bindPair("acc");
@@ -1265,27 +1258,30 @@ function debounce(k, fn, ms) { clearTimeout(timers[k]); timers[k] = setTimeout(f
 
 function motion() { return { speed: Number($("speed").value), acc: Number($("acc").value) }; }
 
-// shortestTarget turns an angle (as steps) into the goal reached the short way
-// round. Only multi-turn mode can cross the 0°/360° seam; the goal is kept
-// within one turn either side of the center so a cable can't wind up.
-const TURN_WINDOW = [2048 - STEPS, 2048 + STEPS];
+// Angle moves are worked out by the server with fresh reads: in multi-turn
+// mode it picks the short way round (the servo reports positions within one
+// turn, but goals use its own turn count). Single-turn mode can't cross the
+// 0°/360° seam, so the long way is the only way there.
 let seamHinted = false;
-function shortestTarget(steps) {
+async function moveAngle(steps) {
   const id = state.selected, cur = state.fb[id]?.position;
-  if (cur === undefined) return steps;
-  if (!multiTurnOf(id)) {
-    const want = ((steps % STEPS) + STEPS) % STEPS;
-    if (Math.abs(want - cur) > STEPS / 2 && !seamHinted) {
-      seamHinted = true;
-      log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Multi-turn in Setup to always take the shortest way.");
-    }
-    return want;
+  if (cur !== undefined && !multiTurnOf(id) && Math.abs(steps - cur) > STEPS / 2 && !seamHinted) {
+    seamHinted = true;
+    log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Multi-turn in Setup to always take the shortest way.");
   }
-  const want = ((steps % STEPS) + STEPS) % STEPS;
-  let best = want + Math.round((cur - want) / STEPS) * STEPS;
-  if (best < TURN_WINDOW[0]) best += STEPS;
-  if (best > TURN_WINDOW[1]) best -= STEPS;
-  return best;
+  const res = await ctl("angle", { position: steps, ...motion() });
+  if (res && res.goal !== undefined) {
+    setTarget(res.goal);
+    log(`move → ${fmtDeg(vdeg(id, res.goal))} (goal ${res.goal})`);
+  }
+}
+
+// nearestGoal previews an angle as a goal near the current target slider value
+// (the slider is in the servo's goal coordinates, including the turn).
+function nearestGoal(steps) {
+  if (!multiTurnOf(state.selected)) return steps;
+  const ref = Number($("target").value);
+  return steps + Math.round((ref - steps) / STEPS) * STEPS;
 }
 
 async function move(quiet) {
@@ -1295,16 +1291,12 @@ async function move(quiet) {
 
 $("moveBtn").onclick = () => move();
 $("stopBtn").onclick = async () => {
-  if (await ctl("stop", {}, "stop")) {
-    const p = state.fb[state.selected]?.position;
-    if (p !== undefined) setTarget(p);
-  }
+  if (await ctl("stop", {}, "stop")) loadConfig(true); // the target follows the servo's new goal (with its turn)
 };
 $("centerBtn").onclick = () => { setTarget(2048); move(); };
-document.querySelectorAll("[data-jog]").forEach((b) => (b.onclick = () => {
-  const base = state.fb[state.selected]?.position ?? Number($("target").value);
-  setTarget(base + Math.round(Number(b.dataset.jog) / DEG));
-  move();
+document.querySelectorAll("[data-jog]").forEach((b) => (b.onclick = async () => {
+  const res = await ctl("jog", { position: Math.round(Number(b.dataset.jog) / DEG), ...motion() }, `jog ${b.dataset.jog}°`);
+  if (res && res.goal !== undefined) setTarget(res.goal);
 }));
 
 $("torque").onchange = (e) => ctl("torque", { on: e.target.checked }, `torque lock ${e.target.checked ? "on" : "off"}`);

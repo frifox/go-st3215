@@ -58,43 +58,84 @@ func writeParams(s *st3215.Servo, p Params, save bool) error {
 	return nil
 }
 
+// unwrapper turns reported positions (which wrap every turn, also in
+// multi-turn mode) into continuous ones, starting from an absolute position.
+// Samples are milliseconds apart, far less than half a turn of travel.
+type unwrapper map[uint8]int
+
+func (u unwrapper) next(id uint8, reported int) int {
+	last, ok := u[id]
+	if !ok {
+		return reported
+	}
+	p := last + st3215.CircularDiff(reported, last)
+	u[id] = p
+	return p
+}
+
 // ForServo tunes one servo.
-func ForServo(s *st3215.Servo) Target { return servoTarget{s} }
+func ForServo(s *st3215.Servo) Target { return &servoTarget{s: s, u: unwrapper{}} }
 
-type servoTarget struct{ s *st3215.Servo }
+type servoTarget struct {
+	s *st3215.Servo
+	u unwrapper
+}
 
-func (t servoTarget) Params() (Params, error)                { return readParams(t.s) }
-func (t servoTarget) Apply(p Params) error                   { return writeParams(t.s, p, false) }
-func (t servoTarget) Save(p Params) error                    { return writeParams(t.s, p, true) }
-func (t servoTarget) Position() (int, error)                 { return t.s.Position() }
-func (t servoTarget) Limits() (int, int, error)              { return t.s.AngleLimits() }
-func (t servoTarget) MoveTo(pos, speed int, acc uint8) error { return t.s.MoveTo(pos, speed, acc) }
-func (t servoTarget) Stop() error                            { return t.s.Stop() }
-func (t servoTarget) Now() time.Time                         { return time.Now() }
-func (t servoTarget) Read() ([]Reading, error) {
+func (t *servoTarget) Params() (Params, error) { return readParams(t.s) }
+func (t *servoTarget) Apply(p Params) error    { return writeParams(t.s, p, false) }
+func (t *servoTarget) Save(p Params) error     { return writeParams(t.s, p, true) }
+func (t *servoTarget) Position() (int, error) {
+	p, err := t.s.AbsolutePosition()
+	if err == nil {
+		t.u[t.s.ID()] = p
+	}
+	return p, err
+}
+func (t *servoTarget) Limits() (int, int, error)              { return t.s.AngleLimits() }
+func (t *servoTarget) MoveTo(pos, speed int, acc uint8) error { return t.s.MoveTo(pos, speed, acc) }
+func (t *servoTarget) Stop() error                            { return t.s.Stop() }
+func (t *servoTarget) Now() time.Time                         { return time.Now() }
+func (t *servoTarget) Read() ([]Reading, error) {
 	f, err := t.s.Feedback()
 	if err != nil {
 		return nil, err
 	}
+	f.Position = t.u.next(t.s.ID(), f.Position)
 	return []Reading{{ID: t.s.ID(), Feedback: f}}, nil
 }
 
 // ForGroup tunes a group: every member gets the same values and moves with
 // the others, so coupled servos are never tuned against each other. Metrics
 // are the worst over all members.
-func ForGroup(g *st3215.Group) Target { return groupTarget{g} }
+func ForGroup(g *st3215.Group) Target { return &groupTarget{g: g, u: unwrapper{}} }
 
-type groupTarget struct{ g *st3215.Group }
+type groupTarget struct {
+	g *st3215.Group
+	u unwrapper
+}
 
-func (t groupTarget) Params() (Params, error) { return readParams(t.g.Leader()) }
-func (t groupTarget) Apply(p Params) error {
+func (t *groupTarget) Params() (Params, error) { return readParams(t.g.Leader()) }
+func (t *groupTarget) Apply(p Params) error {
 	return t.each(func(s *st3215.Servo) error { return writeParams(s, p, false) })
 }
-func (t groupTarget) Save(p Params) error {
+func (t *groupTarget) Save(p Params) error {
 	return t.each(func(s *st3215.Servo) error { return writeParams(s, p, true) })
 }
-func (t groupTarget) Position() (int, error) { return t.g.Leader().Position() }
-func (t groupTarget) Limits() (int, int, error) {
+
+// Position is the leader's absolute position; each member's sample tracking
+// starts from its own absolute position.
+func (t *groupTarget) Position() (int, error) {
+	for _, id := range t.g.IDs() {
+		p, err := t.g.Servo(id).AbsolutePosition()
+		if err != nil {
+			return 0, err
+		}
+		t.u[id] = p
+	}
+	return t.u[t.g.IDs()[0]], nil
+}
+
+func (t *groupTarget) Limits() (int, int, error) {
 	lo, hi := 0, 0
 	for i, id := range t.g.IDs() {
 		l, h, err := t.g.Servo(id).AngleLimits()
@@ -112,10 +153,10 @@ func (t groupTarget) Limits() (int, int, error) {
 	}
 	return lo, hi, nil
 }
-func (t groupTarget) MoveTo(pos, speed int, acc uint8) error { return t.g.MoveTo(pos, speed, acc) }
-func (t groupTarget) Stop() error                            { return t.g.Stop() }
-func (t groupTarget) Now() time.Time                         { return time.Now() }
-func (t groupTarget) Read() ([]Reading, error) {
+func (t *groupTarget) MoveTo(pos, speed int, acc uint8) error { return t.g.MoveTo(pos, speed, acc) }
+func (t *groupTarget) Stop() error                            { return t.g.Stop() }
+func (t *groupTarget) Now() time.Time                         { return time.Now() }
+func (t *groupTarget) Read() ([]Reading, error) {
 	f, err := t.g.Feedback()
 	if err != nil {
 		return nil, err
@@ -123,12 +164,15 @@ func (t groupTarget) Read() ([]Reading, error) {
 	out := make([]Reading, 0, len(f.Members))
 	for _, id := range t.g.IDs() {
 		m := f.Members[id]
+		if m.Err == nil {
+			m.Position = t.u.next(id, m.Position)
+		}
 		out = append(out, Reading{ID: id, Feedback: m.Feedback, Err: m.Err})
 	}
 	return out, nil
 }
 
-func (t groupTarget) each(f func(*st3215.Servo) error) error {
+func (t *groupTarget) each(f func(*st3215.Servo) error) error {
 	var errs []error
 	for _, id := range t.g.IDs() {
 		if err := f(t.g.Servo(id)); err != nil {

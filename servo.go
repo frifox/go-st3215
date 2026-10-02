@@ -140,7 +140,7 @@ func (s *Servo) withUnlockedEEPROM(f func() error) error {
 
 // Feedback is a snapshot of the servo's live state (addresses 56..70).
 type Feedback struct {
-	Position     int     `json:"position"`        // steps; 0..4095 single-turn, signed in multi-turn
+	Position     int     `json:"position"`        // steps within one turn (0..4095), also in multi-turn mode; see AbsolutePosition
 	Speed        int     `json:"speed"`           // step/s, signed by direction
 	Load         float64 `json:"load"`            // % of max drive duty, signed by direction (-100..100)
 	Voltage      float64 `json:"voltage"`         // volts
@@ -610,30 +610,79 @@ func abs(v int) int {
 	return v
 }
 
-// MoveToShortest moves to the angle of pos (taken modulo one turn) the short
-// way round when the servo is in multi-turn mode; otherwise it is MoveTo.
-func (s *Servo) MoveToShortest(pos, speed int, acc uint8) error {
-	lo, hi, err := s.AngleLimits()
-	if err != nil {
-		return err
+// CircularDiff returns a - b as the shortest signed distance around one turn
+// (-2048..2047). Use it to compare positions near the 0/4095 seam.
+func CircularDiff(a, b int) int {
+	d := ((a-b)%StepsPerRev + StepsPerRev) % StepsPerRev
+	if d >= StepsPerRev/2 {
+		d -= StepsPerRev
 	}
-	if lo == 0 && hi == 0 {
-		cur, err := s.Position()
-		if err != nil {
-			return err
-		}
-		pos = clampMultiTurn(NearestEquivalent(cur, pos))
-	}
-	return s.MoveTo(pos, speed, acc)
+	return d
 }
 
-// clampMultiTurn keeps a goal inside the multi-turn range, going the other
-// way round if the short way would leave it.
-func clampMultiTurn(p int) int {
-	for p > MultiTurnLimit {
+// AbsolutePosition returns the present position including the turn count,
+// in the same coordinates as goals.
+//
+// In multi-turn mode the ST3215 reports its position within one turn
+// (0..4095) but interprets goals in its own, unbounded turn count, so the
+// reported position can be whole turns away from where a goal is measured
+// from. The goal register keeps that turn count, so the present position is
+// taken as the equivalent position nearest the current goal. This is exact
+// whenever the servo is within half a turn of its goal (always true after a
+// move has finished, or during any move shorter than half a turn). In
+// single-turn mode it is just Position.
+func (s *Servo) AbsolutePosition() (int, error) {
+	lo, hi, err := s.AngleLimits()
+	if err != nil {
+		return 0, err
+	}
+	cur, err := s.Position()
+	if err != nil || lo != 0 || hi != 0 {
+		return cur, err
+	}
+	goal, err := s.Read(RegGoalPosition)
+	if err != nil {
+		return 0, err
+	}
+	goal = mirrorPos(s.Mirrored(), goal)
+	return goal + CircularDiff(cur, goal), nil
+}
+
+// ShortestGoal returns the goal that reaches the angle of pos (taken modulo
+// one turn) the short way round from the present position, kept within
+// [lo, hi] by going the other way if needed. Only multi-turn mode can cross
+// the 0/4095 seam; in single-turn mode the goal is pos within 0..4095.
+func (s *Servo) ShortestGoal(pos, lo, hi int) (int, error) {
+	l, h, err := s.AngleLimits()
+	if err != nil {
+		return 0, err
+	}
+	if l != 0 || h != 0 {
+		return ((pos % StepsPerRev) + StepsPerRev) % StepsPerRev, nil
+	}
+	cur, err := s.AbsolutePosition()
+	if err != nil {
+		return 0, err
+	}
+	return within(NearestEquivalent(cur, pos), lo, hi), nil
+}
+
+// MoveToShortest moves to the angle of pos the short way round (multi-turn
+// mode; see ShortestGoal) and returns the goal it used.
+func (s *Servo) MoveToShortest(pos, speed int, acc uint8) (int, error) {
+	goal, err := s.ShortestGoal(pos, -MultiTurnLimit, MultiTurnLimit)
+	if err != nil {
+		return 0, err
+	}
+	return goal, s.MoveTo(goal, speed, acc)
+}
+
+// within shifts p by whole turns into [lo, hi] (if it fits).
+func within(p, lo, hi int) int {
+	for p > hi && p-StepsPerRev >= lo {
 		p -= StepsPerRev
 	}
-	for p < -MultiTurnLimit {
+	for p < lo && p+StepsPerRev <= hi {
 		p += StepsPerRev
 	}
 	return p
@@ -663,11 +712,11 @@ func (s *Servo) StepBy(steps, speed int, acc uint8) error {
 // Stop holds the servo at its present position (ModePosition). In ModeWheel
 // use SetWheelSpeed(0, acc); in ModePWM use SetPWM(0).
 func (s *Servo) Stop() error {
-	pos, err := s.Read(RegPresentPosition) // physical: written back unchanged
+	pos, err := s.AbsolutePosition() // with the turn count, so it never spins a turn
 	if err != nil {
 		return err
 	}
-	_, err = s.bus.Write(s.id, RegGoalPosition.Addr, mustEncode(RegGoalPosition, pos))
+	_, err = s.bus.Write(s.id, RegGoalPosition.Addr, mustEncode(RegGoalPosition, mirrorPos(s.Mirrored(), pos)))
 	return err
 }
 
@@ -725,7 +774,7 @@ func (o *WaitOptions) defaults() {
 func (s *Servo) WaitForPosition(ctx context.Context, target int, opt WaitOptions) (Feedback, error) {
 	opt.defaults()
 	return s.waitUntil(ctx, opt, func(f Feedback) bool {
-		d := f.Position - target
+		d := CircularDiff(f.Position, target) // reported positions wrap every turn
 		if d < 0 {
 			d = -d
 		}

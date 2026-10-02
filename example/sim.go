@@ -276,9 +276,9 @@ func (s *simServo) step(now time.Time) {
 	}
 
 	pos := s.reported()
-	if !s.multiTurn() && m[33] != 3 {
-		pos = ((pos % 4096) + 4096) % 4096
-	}
+	// Like the real ST3215, the reported position wraps every turn, also in
+	// multi-turn mode (goals still use the full turn count).
+	pos = ((pos % 4096) + 4096) % 4096
 	put16(m, 56, toSignMag(pos, 15))
 	put16(m, 58, toSignMag(int(s.vel), 15))
 	put16(m, 60, toSignMag(int(math.Abs(s.duty)*1000)*sign(s.duty), 10))

@@ -412,19 +412,60 @@ func TestMoveToShortest(t *testing.T) {
 	b, p := newTestBus(t, 1)
 	s := b.Servo(1)
 	putU16(p.servos[1].mem[RegPresentPosition.Addr:], 4000)
-	if err := s.MoveToShortest(100, 0, 0); err != nil { // single-turn: plain MoveTo
-		t.Fatal(err)
-	}
-	if physGoal(p, 1) != 100 {
-		t.Fatal("single-turn", physGoal(p, 1))
+	if goal, err := s.MoveToShortest(100, 0, 0); err != nil || goal != 100 { // single-turn: plain MoveTo
+		t.Fatal("single-turn", goal, err)
 	}
 	if err := s.SetMultiTurn(true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MoveToShortest(100, 0, 0); err != nil {
-		t.Fatal(err)
+	putU16(p.servos[1].mem[RegGoalPosition.Addr:], 4000) // settled at 4000
+	if goal, err := s.MoveToShortest(100, 0, 0); err != nil || goal != 4196 || physGoal(p, 1) != 4196 {
+		t.Fatal("multi-turn", goal, err)
 	}
-	if physGoal(p, 1) != 4196 {
-		t.Fatal("multi-turn", physGoal(p, 1))
+}
+
+// The ST3215 reports its position within one turn even in multi-turn mode,
+// while goals use its internal turn count (seen on hardware: a 20° move
+// spun a full turn). The turn count comes from the goal register.
+func TestMultiTurnReportedPositionWraps(t *testing.T) {
+	for _, mirrored := range []bool{false, true} {
+		p := newFakePort(1)
+		b, _ := NewBus(p)
+		b.SetMirrored(1, mirrored)
+		s := b.Servo(1)
+		if err := s.SetMultiTurn(true); err != nil {
+			t.Fatal(err)
+		}
+		// Internally one turn up at logical 7100; the register shows 3004.
+		phys := func(logical int) int { return mirrorPos(mirrored, logical) }
+		putU16(p.servos[1].mem[RegGoalPosition.Addr:], encodeSignMag(phys(7100), 15))
+		putU16(p.servos[1].mem[RegPresentPosition.Addr:], uint16(((phys(3004)%4096)+4096)%4096))
+
+		if abs, err := s.AbsolutePosition(); err != nil || abs != 7100 {
+			t.Fatalf("mirrored=%v: AbsolutePosition %d %v", mirrored, abs, err)
+		}
+		goal, err := s.MoveToShortest(3982, 0, 0) // 350°: +978 steps, not a turn back
+		if err != nil || goal != 8078 {
+			t.Fatalf("mirrored=%v: goal %d %v", mirrored, goal, err)
+		}
+		putU16(p.servos[1].mem[RegGoalPosition.Addr:], encodeSignMag(phys(7100), 15))
+		if err := s.Stop(); err != nil {
+			t.Fatal(err)
+		}
+		if g := mirrorPos(mirrored, physGoal(p, 1)); g != 7100 {
+			t.Fatalf("mirrored=%v: Stop wrote %d, want 7100 (no extra turn)", mirrored, g)
+		}
+	}
+}
+
+func TestCircularDiff(t *testing.T) {
+	for _, c := range []struct{ a, b, want int }{{10, 4090, 16}, {4090, 10, -16}, {100, 50, 50}, {8200, 4100, 4}} {
+		if got := CircularDiff(c.a, c.b); got != c.want {
+			t.Errorf("CircularDiff(%d, %d) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+	f := GroupFeedback{Members: map[uint8]FeedbackResult{1: {Feedback: Feedback{Position: 4090}}, 2: {Feedback: Feedback{Position: 6}}}}
+	if f.Spread() != 12 {
+		t.Fatal("spread across the seam", f.Spread())
 	}
 }

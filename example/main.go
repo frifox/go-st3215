@@ -498,6 +498,7 @@ type resultMsg struct {
 	Seq   int    `json:"seq"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	Goal  *int   `json:"goal,omitempty"` // for "angle" and "jog": the goal the server chose
 }
 
 type registerInfo struct {
@@ -634,8 +635,18 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handle(c *client, req request) {
-	err := s.exec(c, req)
-	res := resultMsg{Type: "result", Seq: req.Seq, OK: err == nil}
+	var goal *int
+	var err error
+	switch req.Type {
+	case "angle", "jog":
+		var g int
+		if g, err = s.computedMove(req); err == nil {
+			goal = &g
+		}
+	default:
+		err = s.exec(c, req)
+	}
+	res := resultMsg{Type: "result", Seq: req.Seq, OK: err == nil, Goal: goal}
 	if err != nil {
 		res.Error = err.Error()
 		log.Printf("%s: %v", req.Type, err)
@@ -644,6 +655,54 @@ func (s *server) handle(c *client, req request) {
 	if err == nil {
 		s.afterChange(c, req)
 	}
+}
+
+// turnWindow keeps angle moves within one turn either side of the center
+// (multi-turn mode), so repeated moves can't wind up a cable.
+var turnWindow = [2]int{st3215.CenterPosition - st3215.StepsPerRev, st3215.CenterPosition + st3215.StepsPerRev}
+
+// computedMove handles moves whose goal depends on where the servo is, read
+// fresh here: "angle" goes to req.Position's angle the short way round
+// (multi-turn mode), "jog" moves req.Position steps from the present position.
+// Both use the servo's absolute position: in multi-turn mode the reported
+// position wraps every turn, but goals use the servo's turn count.
+func (s *server) computedMove(req request) (int, error) {
+	ids := []uint8{req.ID}
+	if req.Group != "" {
+		g, ok := s.cfg.group(req.Group)
+		if !ok {
+			return 0, fmt.Errorf("unknown group %q", req.Group)
+		}
+		ids = g.Members
+	}
+	found := s.servoIDs()
+	for _, id := range ids {
+		if !slices.Contains(found, id) {
+			return 0, fmt.Errorf("servo %d was not found by the last scan", id)
+		}
+		if s.tuning(id) {
+			return 0, fmt.Errorf("servo %d is being auto-tuned; stop the auto-tune first", id)
+		}
+	}
+	var goal int
+	err := s.withBus(func(bus *st3215.Bus) error {
+		lead := bus.Servo(ids[0]) // the group's leader decides the goal
+		var err error
+		if req.Type == "jog" {
+			var cur int
+			if cur, err = lead.AbsolutePosition(); err != nil {
+				return err
+			}
+			goal = cur + req.Position
+		} else if goal, err = lead.ShortestGoal(req.Position, turnWindow[0], turnWindow[1]); err != nil {
+			return err
+		}
+		if req.Group != "" {
+			return bus.Group(ids...).MoveTo(goal, req.Speed, req.Acc)
+		}
+		return lead.MoveTo(goal, req.Speed, req.Acc)
+	})
+	return goal, err
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +768,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {

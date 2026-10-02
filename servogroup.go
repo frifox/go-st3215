@@ -45,22 +45,14 @@ func (g *Group) MoveTo(pos, speed int, acc uint8) error {
 	return g.bus.SyncMove(targets...)
 }
 
-// MoveToShortest moves all members to the angle of pos the short way round
-// (relative to the leader) when the leader is in multi-turn mode; otherwise
-// it is MoveTo.
-func (g *Group) MoveToShortest(pos, speed int, acc uint8) error {
-	lo, hi, err := g.Leader().AngleLimits()
+// MoveToShortest moves all members to the angle of pos the short way round,
+// measured on the leader (see Servo.ShortestGoal), and returns the goal used.
+func (g *Group) MoveToShortest(pos, speed int, acc uint8) (int, error) {
+	goal, err := g.Leader().ShortestGoal(pos, -MultiTurnLimit, MultiTurnLimit)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if lo == 0 && hi == 0 {
-		cur, err := g.Leader().Position()
-		if err != nil {
-			return err
-		}
-		pos = clampMultiTurn(NearestEquivalent(cur, pos))
-	}
-	return g.MoveTo(pos, speed, acc)
+	return goal, g.MoveTo(goal, speed, acc)
 }
 
 // StepBy moves all members a relative number of steps in ModeStep.
@@ -135,18 +127,19 @@ type GroupFeedback struct {
 }
 
 // Spread is the largest difference between the members' logical positions
-// (steps), over the members that answered.
+// (steps), over the members that answered. Positions are compared the short
+// way round, so members either side of the 0/4095 seam aren't far apart.
 func (f GroupFeedback) Spread() int {
-	first, lo, hi := true, 0, 0
+	first, ref, lo, hi := true, 0, 0, 0
 	for _, m := range f.Members {
 		if m.Err != nil {
 			continue
 		}
 		if first {
-			lo, hi, first = m.Position, m.Position, false
-			continue
+			ref, first = m.Position, false
 		}
-		lo, hi = min(lo, m.Position), max(hi, m.Position)
+		d := CircularDiff(m.Position, ref)
+		lo, hi = min(lo, d), max(hi, d)
 	}
 	return hi - lo
 }
@@ -186,7 +179,7 @@ func (g *Group) Feedback() (GroupFeedback, error) {
 // Align moves every member to the leader's present logical position, so
 // coupled servos agree before torque is applied to the whole group.
 func (g *Group) Align(speed int, acc uint8) error {
-	pos, err := g.Leader().Position()
+	pos, err := g.Leader().AbsolutePosition()
 	if err != nil {
 		return fmt.Errorf("leader: %w", err)
 	}
@@ -212,7 +205,7 @@ func (g *Group) WaitForPosition(ctx context.Context, target int, opt WaitOptions
 			if m.Status&opt.FailOn != 0 {
 				return f, fmt.Errorf("%w: servo %d: %s", ErrFault, id, m.Status)
 			}
-			d := m.Position - target
+			d := CircularDiff(m.Position, target)
 			if d < 0 {
 				d = -d
 			}

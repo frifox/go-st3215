@@ -42,7 +42,8 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Discovery | `Bus.Scan`, `Bus.Ping`, `Bus.Identify` (one servo on the bus) |
 | Position mode | `MoveTo`, `MoveToDegrees`, `MoveToAndWait`, `Stop`, `SetAcceleration` |
 | Multi-turn | `SetMultiTurn(true)` → goal range ±30719 steps (±7.5 turns) |
-| Shortest path | `MoveToShortest` (servo and group) / `NearestEquivalent`: in multi-turn mode, go the short way round across 0°/360° |
+| Shortest path | `MoveToShortest` / `ShortestGoal` (servo and group), `NearestEquivalent`: in multi-turn mode, go the short way round across 0°/360° |
+| Turn count | `AbsolutePosition` (position including the turn, in goal coordinates), `CircularDiff` (compare positions across the seam) |
 | Other modes | `SetMode(ModeWheel/ModePWM/ModeStep)`, `SetWheelSpeed`, `SetPWM` |
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
 | Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |
@@ -188,6 +189,14 @@ The demo is a separate Go module (`example/go.mod`), so the library itself only 
   `/dev/cu.wchusbserial…`. Recent macOS includes the CH34x driver.
 - Each new servo ships with ID 1. Connect them **one at a time** and give each a unique
   ID (`Servo.SetID`, or the Setup panel of the demo) before chaining them.
+
+## Multi-turn mode: positions wrap
+
+Verified on hardware: in multi-turn mode the ST3215 still **reports** its position within one turn
+(0..4095), but **goals** use its own unbounded turn count. Using the reported position as a goal can
+therefore send the servo a whole turn the wrong way. Use `AbsolutePosition()` for the present
+position in goal coordinates (the turn is taken from the goal register); `Stop`, `MoveToShortest`,
+`Group.Align` and the auto-tuner already do. The turn count is not kept across power cycles.
 
 ## Things to verify on hardware
 
