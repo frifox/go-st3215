@@ -223,8 +223,8 @@ type portInfo struct {
 	Likely      bool   `json:"likely"` // looks like a Bus Servo Adapter (USB-UART bridge)
 }
 
-// usbBridges maps USB vendor IDs of common USB-UART bridges to a name. The
-// Bus Servo Adapter (A) uses a WCH CH34x chip.
+// usbBridges maps USB vendor IDs of common USB-UART bridges to a name.
+// The Bus Servo Adapter (A) uses a WCH CH34x chip.
 var usbBridges = map[string]string{
 	"1A86": "WCH CH34x",
 	"0403": "FTDI",
@@ -239,8 +239,8 @@ func listPorts() ([]portInfo, error) {
 	}
 	out := []portInfo{}
 	for _, d := range details {
-		// On macOS every device appears as /dev/tty.* and /dev/cu.*; the cu
-		// device is the one to use for outgoing connections.
+		// On macOS every device appears as /dev/tty.* and /dev/cu.*;
+		// the cu device is the one to use for outgoing connections.
 		if runtime.GOOS == "darwin" && strings.HasPrefix(d.Name, "/dev/tty.") {
 			continue
 		}

@@ -336,7 +336,7 @@ td .num { width: 90px; padding: 3px 6px; }
       <h2>Control</h2>
       <div class="card-body">
         <div class="row" style="margin-top:0">
-          <label class="switch"><input type="checkbox" id="torque"><span class="track"></span><span>Torque</span></label>
+          <label class="switch"><input type="checkbox" id="torque"><span class="track"></span><span title="On: the motor holds its position. Off: the servo turns freely by hand.">Torque Lock</span></label>
           <span class="spacer"></span>
           <div class="seg" id="modeSeg">
             <button data-mode="0">Position</button>
@@ -362,7 +362,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <div class="row">
             <label class="switch"><input type="checkbox" id="follow"><span class="track"></span><span>Move while dragging</span></label>
           </div>
-          <p class="hint">Click the dial to move there. Range follows the angle limits (±30719 in multi-turn).</p>
+          <p class="hint">Press Enter in a target field or click the dial to move there. Range follows the angle limits (±30719 in multi-turn).</p>
         </div>
 
         <div class="mode-panel" data-panel="1" hidden>
@@ -839,6 +839,17 @@ bindPair("target", (ev) => {
   }
 });
 $("targetDegNum").addEventListener("change", () => setTarget(Math.round(Number($("targetDegNum").value) / DEG)));
+// Enter in either target field moves there right away.
+$("targetNum").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  setTarget(Math.round(Number($("targetNum").value)));
+  move();
+});
+$("targetDegNum").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  setTarget(Math.round(Number($("targetDegNum").value) / DEG));
+  move();
+});
 bindPair("speed");
 bindPair("acc");
 bindPair("tlimit", (ev) => { if (ev === "change" || ev === "input") debounce("tl", () => cmd("torqueLimit", { percent: Number($("tlimit").value) }), 150); });
@@ -870,7 +881,7 @@ document.querySelectorAll("[data-jog]").forEach((b) => (b.onclick = () => {
   move();
 }));
 
-$("torque").onchange = (e) => cmd("torque", { on: e.target.checked }, `torque ${e.target.checked ? "on" : "off"}`);
+$("torque").onchange = (e) => cmd("torque", { on: e.target.checked }, `torque lock ${e.target.checked ? "on" : "off"}`);
 
 function setMode(mode) {
   document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("active", Number(b.dataset.mode) === mode));
