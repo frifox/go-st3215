@@ -58,6 +58,11 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 .card-body { padding: 14px; }
+.card > h2.toggle { cursor: pointer; user-select: none; }
+.card > h2.toggle::before { content: "▾"; font-size: 11px; transition: transform .15s; }
+.card.collapsed > h2.toggle::before { transform: rotate(-90deg); }
+.card.collapsed > h2 { border-bottom: 0; }
+.card.collapsed > :not(h2) { display: none; }
 /* servo list */
 .servo-list { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 860px) { .servo-list { flex-direction: row; overflow-x: auto; } }
@@ -548,8 +553,8 @@ td .num { width: 90px; padding: 3px 6px; }
     </section>
     </div>
 
-    <section class="card span2 servo-only" id="memCard">
-      <h2>Memory table</h2>
+    <section class="card span2 servo-only collapsed" id="memCard">
+      <h2 class="toggle" id="memToggle" title="Show or hide the memory table">Memory table</h2>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Addr</th><th>Register</th><th>Area</th><th>Value</th><th>Unit</th><th>Range</th><th>Write</th></tr></thead>
@@ -1459,6 +1464,12 @@ function updateGroupMultiTurn() {
 $("gMultiturn").onchange = async (e) => {
   if (await ctl("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
   else updateGroupMultiTurn();
+};
+// The memory table starts collapsed; this window remembers the choice.
+try { if (localStorage.getItem("memOpen") === "1") $("memCard").classList.remove("collapsed"); } catch {}
+$("memToggle").onclick = () => {
+  const open = !$("memCard").classList.toggle("collapsed");
+  try { localStorage.setItem("memOpen", open ? "1" : "0"); } catch {}
 };
 $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
