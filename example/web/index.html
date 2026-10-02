@@ -632,6 +632,15 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
       <p class="hint" id="svZeroHint"></p>
       <p class="hint">Only the degrees shown in this console change (dial labels, readouts, the Target ° field). Steps and everything stored on the servo stay as they are. Saved in config.toml.</p>
+      <hr class="sep">
+      <div class="row" style="margin-top:0">
+        <span style="width:90px">Arm up at</span>
+        <input type="number" id="svDialUp" class="num" min="0" max="359.9" step="0.1" style="width:90px">
+        <span class="hint">° factory</span>
+        <button class="btn small" id="svDialUpHere" title="The arm is pointing straight up right now">Arm is up now</button>
+        <button class="btn small" id="svDialUpClear">Reset</button>
+      </div>
+      <p class="hint">Dial orientation: where this servo's arm points physically straight up, on the factory scale. The dial is turned so its needle matches the real arm; zeros and readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
       <div class="err" id="svErr"></div>
       <div class="row" style="margin-top:16px">
         <span class="spacer"></span>
@@ -718,7 +727,12 @@ function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
 // needle, only the labels, just like the virtual zero.
 function offsetOf(id) { return state.cfg[id]?.positionOffset ?? 0; }
 function rawSteps(id, steps) { return steps + (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); }
-function labelZero(id) { return rawSteps(id, 0) * DEG + zeroOf(id); }
+// Dial orientation: the factory-scale angle at which this servo's arm points
+// physically up (config.toml "DialUp"), so the needle matches the real arm.
+function dialUpOf(id) { return Number((state.dialUps || {})[id] || 0); }
+// screenDeg: where a position is drawn on the dial (0 = top of the dial).
+function screenDeg(id, steps) { return rawSteps(id, steps) * DEG - dialUpOf(id); }
+function labelZero(id) { return rawSteps(id, 0) * DEG + zeroOf(id) - dialUpOf(id); }
 function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
 function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
@@ -983,7 +997,7 @@ function renderSelected() {
   chips += `<span class="chip" title="A RegWrite is waiting for Action" style="visibility:${f.regWritePending ? "visible" : "hidden"}">pending</span>`;
   $("chips").innerHTML = chips;
 
-  setNeedle(state.selected, rawSteps(state.selected, f.position) * DEG);
+  setNeedle(state.selected, screenDeg(state.selected, f.position));
   $("dialDeg").textContent = fmtDeg(shown);
   $("dialSteps").textContent = `${f.position} steps`;
 }
@@ -995,7 +1009,7 @@ function renderGroup() {
     const f = state.fb[id];
     const label = `<span class="cdot" style="--c:${colorOf(id)}"></span> ${escapeHTML(servoLabel(id, "#" + id))}${state.mirrored?.has(id) ? " ↔" : ""}`;
     if (!f || f.error) return `<tr><td>${label}</td><td class="bad" colspan="6">no reply</td></tr>`;
-    setNeedle(id, rawSteps(id, f.position) * DEG);
+    setNeedle(id, screenDeg(id, f.position));
     const st = f.status ? `<td class="bad" title="${f.statusText}">fault</td>` : `<td>${f.moving ? "moving" : "ok"}</td>`;
     return `<tr><td>${label}</td><td title="${f.position} steps">${fmtDeg(vdeg(id, f.position))}</td><td>${f.speed}</td>` +
       `<td>${f.load.toFixed(1)}%</td><td>${f.current.toFixed(0)}</td><td title="${f.voltage.toFixed(1)} V">${f.temperature}</td>${st}</tr>`;
@@ -1069,14 +1083,14 @@ function setNeedle(id, deg) {
 }
 
 function setGoalMark(steps) {
-  const [x, y] = polar(rawSteps(state.selected, steps) * DEG, R + 4);
+  const [x, y] = polar(screenDeg(state.selected, steps), R + 4);
   $("goalMark").setAttribute("cx", x); $("goalMark").setAttribute("cy", y);
 }
 
 function setLimitArc(min, max) {
   const el = $("limitArc");
   if (min === 0 && max === 0) { el.setAttribute("d", ""); return; }
-  const a0 = rawSteps(state.selected, min) * DEG, a1 = rawSteps(state.selected, max) * DEG;
+  const a0 = screenDeg(state.selected, min), a1 = screenDeg(state.selected, max);
   const [x0, y0] = polar(a0, R + 4), [x1, y1] = polar(a1, R + 4);
   el.setAttribute("d", `M ${x0} ${y0} A ${R + 4} ${R + 4} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`);
 }
@@ -1086,7 +1100,7 @@ $("dial").addEventListener("click", (e) => {
   const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
   let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
   if (deg < 0) deg += 360;
-  const raw = Math.round(deg / DEG) - rawSteps(state.selected, 0); // dial frame -> servo steps
+  const raw = Math.round((deg + dialUpOf(state.selected)) / DEG) - rawSteps(state.selected, 0); // dial -> servo steps
   moveAngle(((raw % STEPS) + STEPS) % STEPS);
 });
 
@@ -1555,6 +1569,7 @@ function onState(m) {
   state.names = m.names || {};
   state.colors = m.colors || {};
   state.zeros = m.zeros || {};
+  state.dialUps = m.dialUps || {};
   state.groups = m.groups || [];
   $("mirrored").checked = state.mirrored.has(state.selected);
   // A group this window just created: open it.
@@ -1569,6 +1584,8 @@ function onState(m) {
     selectGroup(created.key);
   } else if (state.selected !== null && m.connected) {
     applyMode(); // refresh in place: needles, dial labels, member chips, health limits
+    const lc = state.cfg[state.selected];
+    if (lc) setLimitArc(lc.minAngleLimit, lc.maxAngleLimit); // the dial may have turned
     renderNames();
     renderHealthSettings();
     setTarget(Number($("target").value)); // re-show the target in (possibly new) virtual degrees
@@ -1840,6 +1857,7 @@ function openServoEdit() {
   $("svColor").dataset.custom = (state.colors || {})[svID] ? "1" : "";
   $("svMirrored").checked = !!state.mirrored?.has(svID);
   $("svZero").value = zeroOf(svID);
+  $("svDialUp").value = dialUpOf(svID);
   $("svErr").textContent = "";
   renderZeroHint();
   $("servoModal").hidden = false;
@@ -1862,6 +1880,12 @@ $("svZeroHere").onclick = () => {
   renderZeroHint();
 };
 $("svZeroClear").onclick = () => { $("svZero").value = 0; renderZeroHint(); };
+$("svDialUpHere").onclick = () => {
+  const f = state.fb[svID];
+  if (!f || f.error) return;
+  $("svDialUp").value = (Math.round(wrap360(rawSteps(svID, f.position) * DEG) * 10) / 10).toString();
+};
+$("svDialUpClear").onclick = () => { $("svDialUp").value = 0; };
 $("svColor").addEventListener("input", () => ($("svColor").dataset.custom = "1"));
 $("svColorReset").onclick = () => {
   $("svColor").dataset.custom = "";
@@ -1876,10 +1900,13 @@ $("svSave").onclick = async () => {
   let zero = Number($("svZero").value) || 0;
   if (zero < 0 || zero >= 360) { $("svErr").textContent = "Virtual 0° must be between 0 and 359.9."; return; }
   zero = Math.round(zero * 10) / 10;
+  let dialUp = Number($("svDialUp").value) || 0;
+  if (dialUp < 0 || dialUp >= 360) { $("svErr").textContent = "Arm up must be between 0 and 359.9."; return; }
+  dialUp = Math.round(dialUp * 10) / 10;
   const id = svID;
   try {
     await send("servoEdit", { id, name: $("svName").value.trim(), color: $("svColor").dataset.custom ? $("svColor").value : "",
-      on: $("svMirrored").checked, zero });
+      on: $("svMirrored").checked, zero, dialUp });
     log(`servo ${id} settings saved`);
     closeServoEdit();
   } catch (e) { $("svErr").textContent = e.message; }

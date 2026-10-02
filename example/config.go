@@ -23,6 +23,7 @@ type servoConfig struct {
 	Mirrored bool    `toml:"Mirrored,omitempty"`
 	Color    string  `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
 	Zero     float64 `toml:"Zero,omitzero"`   // virtual 0° (degrees, 0..360): shown angle = physical - Zero
+	DialUp   float64 `toml:"DialUp,omitzero"` // factory-scale angle at which the arm points physically up (dial orientation)
 }
 
 func (c servoConfig) empty() bool { return c == servoConfig{} }

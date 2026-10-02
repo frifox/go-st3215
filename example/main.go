@@ -167,7 +167,7 @@ func (s *server) broadcast(msg any) {
 func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	mirrored, names, colors, zeros := []int{}, map[string]string{}, map[string]string{}, map[string]float64{}
+	mirrored, names, colors, zeros, dialUps := []int{}, map[string]string{}, map[string]string{}, map[string]float64{}, map[string]float64{}
 	for id, sc := range s.cfg.all() {
 		if sc.Mirrored {
 			mirrored = append(mirrored, int(id))
@@ -181,11 +181,14 @@ func (s *server) stateMsg() stateMsg {
 		if sc.Zero != 0 {
 			zeros[strconv.Itoa(int(id))] = sc.Zero
 		}
+		if sc.DialUp != 0 {
+			dialUps[strconv.Itoa(int(id))] = sc.DialUp
+		}
 	}
 	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
 		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names,
-		Colors: colors, Zeros: zeros, Groups: groupInfos(s.cfg.allGroups())}
+		Colors: colors, Zeros: zeros, DialUps: dialUps, Groups: groupInfos(s.cfg.allGroups())}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -461,9 +464,10 @@ type stateMsg struct {
 	Scanned   bool               `json:"scanned"`
 	IDs       []int              `json:"ids"` // not []uint8: encoding/json would emit base64
 	Mirrored  []int              `json:"mirrored"`
-	Names     map[string]string  `json:"names"`  // servo ID -> name from config.toml
-	Colors    map[string]string  `json:"colors"` // servo ID -> color override from config.toml
-	Zeros     map[string]float64 `json:"zeros"`  // servo ID -> virtual 0° in degrees
+	Names     map[string]string  `json:"names"`   // servo ID -> name from config.toml
+	Colors    map[string]string  `json:"colors"`  // servo ID -> color override from config.toml
+	Zeros     map[string]float64 `json:"zeros"`   // servo ID -> virtual 0° in degrees
+	DialUps   map[string]float64 `json:"dialUps"` // servo ID -> factory-scale angle that is physically up
 	Groups    []groupInfo        `json:"groups"`
 }
 
@@ -553,6 +557,7 @@ type request struct {
 	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
+	DialUp   float64    `json:"dialUp"`  // for "servoEdit": factory-scale angle that is physically up
 	Degrees  float64    `json:"degrees"` // for "zeroAt": where 0° goes, in degrees on the factory scale
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
@@ -1038,12 +1043,12 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if err != nil {
 			return err
 		}
-		if req.Zero < 0 || req.Zero >= 360 {
-			return fmt.Errorf("virtual zero must be between 0 and 360 degrees")
+		if req.Zero < 0 || req.Zero >= 360 || req.DialUp < 0 || req.DialUp >= 360 {
+			return fmt.Errorf("angles must be between 0 and 360 degrees")
 		}
 		bus.SetMirrored(req.ID, req.On)
 		if err := s.cfg.update(req.ID, func(c *servoConfig) {
-			c.Name, c.Color, c.Mirrored, c.Zero = name, color, req.On, req.Zero
+			c.Name, c.Color, c.Mirrored, c.Zero, c.DialUp = name, color, req.On, req.Zero, req.DialUp
 		}); err != nil {
 			return err
 		}
