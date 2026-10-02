@@ -86,3 +86,20 @@ func TestGroupAlignWaitCopy(t *testing.T) {
 		t.Fatal("copy")
 	}
 }
+
+func TestGroupSetPositionAs(t *testing.T) {
+	b, p := newTestBus(t, 1, 2)
+	b.SetMirrored(2, true)
+	for id, pos := range map[uint8]int{1: 1564, 2: 2600} {
+		putU16(p.servos[id].mem[RegPresentPosition.Addr:], uint16(pos))
+	}
+	if err := b.Group(1, 2).SetPositionAs(0); err != nil {
+		t.Fatal(err)
+	}
+	for id, raw := range map[uint8]int{1: 1564, 2: 2600} {
+		off := RegPositionOffset.decode(p.servos[id].mem[RegPositionOffset.Addr:])
+		if CircularDiff(raw-off, 0) != 0 {
+			t.Fatalf("servo %d: offset %d doesn't make here read 0", id, off)
+		}
+	}
+}

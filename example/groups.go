@@ -164,6 +164,26 @@ func (s *server) groupCommand(bus *st3215.Bus, req request) error {
 		return g.SetTorqueLimit(req.Percent)
 	case "multiturn":
 		return g.SetMultiTurn(req.On)
+	case "zeroHere":
+		// The pose the members are in now becomes 0° on each servo. The
+		// servos' own zero replaces a virtual one, so those are cleared.
+		if err := g.SetPositionAs(0); err != nil {
+			return err
+		}
+		cleared := false
+		for _, id := range gc.Members {
+			if s.cfg.get(id).Zero != 0 {
+				if err := s.cfg.update(id, func(c *servoConfig) { c.Zero = 0 }); err != nil {
+					return err
+				}
+				cleared = true
+			}
+		}
+		if cleared {
+			s.broadcastState()
+		}
+		s.logf("info", "group %s: the current position is now 0° on every member (offsets saved on the servos)", gc.Name)
+		return nil
 	case "align":
 		return g.Align(req.Speed, req.Acc)
 	case "copyTuning":

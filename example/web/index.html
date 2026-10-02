@@ -463,6 +463,22 @@ td .num { width: 90px; padding: 3px 6px; }
       </div>
     </section>
 
+    <section class="card group-only" id="gSetupCard" hidden>
+      <h2>Setup</h2>
+      <div class="card-body">
+        <div class="row" style="margin-top:0">
+          <label class="switch"><input type="checkbox" id="gMultiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
+        </div>
+        <p class="hint" id="gMultiturnHint">Applies to every member.</p>
+        <hr class="sep">
+        <div class="row">
+          <span>Calibrate 0° to</span>
+          <button class="btn" id="gZeroHere" title="Make the pose the members are in now 0° on every member">Current position</button>
+        </div>
+        <p class="hint">Sets each member's own zero where it is now, so all of them read 0° in this pose. Saved on the servos.</p>
+      </div>
+    </section>
+
     <section class="card servo-only" id="setupCard">
       <h2>Setup</h2>
       <div class="card-body">
@@ -513,11 +529,6 @@ td .num { width: 90px; padding: 3px 6px; }
           <button class="btn" id="gSaveLimits">Save limits</button>
         </div>
         <p class="hint">Spread is the largest difference between the members' positions. Members "fight" when one pushes one way and another pushes back, which strains a shared axis. Turning torque off releases the whole group, so make sure the load can't fall.</p>
-        <hr class="sep">
-        <div class="row" style="margin-top:0">
-          <label class="switch"><input type="checkbox" id="gMultiturn"><span class="track"></span><span>Enable multi-turn (allows crossing 0° line)</span></label>
-        </div>
-        <p class="hint" id="gMultiturnHint">Applies to every member.</p>
         <hr class="sep">
         <div class="row">
           <button class="btn" id="gAlign" title="Move every member slowly to the leader's position">Align to leader</button>
@@ -1470,6 +1481,15 @@ try { if (localStorage.getItem("memOpen") === "1") $("memCard").classList.remove
 $("memToggle").onclick = () => {
   const open = !$("memCard").classList.toggle("collapsed");
   try { localStorage.setItem("memOpen", open ? "1" : "0"); } catch {}
+};
+$("gZeroHere").onclick = async () => {
+  const g = curGroup();
+  if (!g) return;
+  const virt = g.members.filter((id) => zeroOf(id));
+  if (!await ask(`Make the current position 0° on every member of ${g.name} (#${g.members.join(", #")})?\n\n` +
+    "Each servo's zero is saved on the servo, so every app sees it. The arms stay where they are." +
+    (virt.length ? `\n\nThe virtual 0° of #${virt.join(", #")} is cleared, since the servo's zero replaces it.` : ""), "Set")) return;
+  if (await ctl("zeroHere", {}, "0° set to the current position")) loadConfig(true);
 };
 $("multiturn").onchange = async (e) => {
   if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);

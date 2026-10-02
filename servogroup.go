@@ -103,6 +103,12 @@ func (g *Group) SetMultiTurn(on bool) error {
 	return g.each(func(s *Servo) error { return s.SetMultiTurn(on) })
 }
 
+// SetPositionAs makes every member's current position read pos (steps,
+// logical), e.g. SetPositionAs(0) makes the pose they are in now 0°. Persisted.
+func (g *Group) SetPositionAs(pos int) error {
+	return g.each(func(s *Servo) error { return s.SetPositionAs(pos) })
+}
+
 // syncValue writes one SRAM register on every member with a single packet.
 func (g *Group) syncValue(r Register, value func(id uint8) int) error {
 	entries := make([]SyncWriteEntry, len(g.ids))

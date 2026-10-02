@@ -855,7 +855,7 @@ func onOff(on bool) string {
 // changesServo lists the commands after which a fresh config is broadcast.
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
-	"multiturn": true, "torqueLimit": true, "write": true, "tune": true,
+	"multiturn": true, "zeroHere": true, "torqueLimit": true, "write": true, "tune": true,
 	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
