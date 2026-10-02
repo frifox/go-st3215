@@ -1,5 +1,5 @@
-# go-st3215 demo: per-servo settings, keyed by servo ID.
-# Edited by the web UI (Name, Mirrored); changes made here are read on startup.
+# go-st3215 demo: per-servo settings keyed by servo ID, and servo groups.
+# Edited by the web UI; changes made here are read on startup.
 
 [1]
 Name = "Right"
@@ -7,3 +7,7 @@ Mirrored = true
 
 [2]
 Name = "Left"
+
+[group.rig]
+Name = "Rig"
+Members = [1, 2]

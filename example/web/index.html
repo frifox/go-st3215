@@ -545,7 +545,7 @@ td .num { width: 90px; padding: 3px 6px; }
     <div class="card-body">
       <div class="row" style="margin-top:0">
         <span>Name</span>
-        <input type="text" id="gName" class="num" maxlength="40" placeholder="e.g. Pitch" style="flex:1;font-family:inherit">
+        <input type="text" id="gName" class="num" maxlength="40" placeholder="Group (optional)" style="flex:1;font-family:inherit">
       </div>
       <p class="hint" style="margin-bottom:6px">Members (one group per servo). The leader is the reference for Align.</p>
       <div id="gMembers" class="member-pick"></div>
@@ -1607,7 +1607,6 @@ $("groupModal").addEventListener("keydown", (e) => { if (e.key === "Escape") clo
 $("gSave").onclick = async () => {
   const ids = checkedMembers(), leader = Number($("gLeader").value);
   const name = $("gName").value.trim();
-  if (!name) return ($("gErr").textContent = "Give the group a name.");
   if (ids.length < 2) return ($("gErr").textContent = "Pick at least 2 servos.");
   const memberList = [leader, ...ids.filter((id) => id !== leader)];
   const old = editingGroup ? curGroupBy(editingGroup) : null;

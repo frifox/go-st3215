@@ -177,7 +177,7 @@ func (s *server) groupSave(req request) error {
 		return err
 	}
 	if name == "" {
-		return fmt.Errorf("give the group a name")
+		name = "Group" // the name is optional
 	}
 	members := make([]uint8, 0, len(req.Members))
 	for _, id := range req.Members {

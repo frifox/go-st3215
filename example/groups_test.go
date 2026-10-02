@@ -72,3 +72,19 @@ func TestConfigGroupsRoundTrip(t *testing.T) {
 		t.Fatalf("%+v", sc)
 	}
 }
+
+func TestGroupDefaultName(t *testing.T) {
+	cfg, _, _ := loadConfig(filepath.Join(t.TempDir(), "config.toml"))
+	s := &server{cfg: cfg, clients: map[*client]struct{}{}}
+	if err := s.groupSave(request{Members: []int{1, 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.groupSave(request{Name: "  ", Members: []int{3, 4}}); err != nil {
+		t.Fatal(err)
+	}
+	g1, ok1 := cfg.group("group")
+	g2, ok2 := cfg.group("group-2")
+	if !ok1 || !ok2 || g1.Name != "Group" || g2.Name != "Group" {
+		t.Fatalf("%+v %+v", g1, g2)
+	}
+}
