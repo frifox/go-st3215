@@ -212,8 +212,7 @@ td .num { width: 90px; padding: 3px 6px; }
   <span class="pill" id="boardPill" hidden title="Driver board"><span class="dot ok"></span><span id="boardName"></span></span>
   <span class="pill" id="rate" hidden>– Hz</span>
   <span class="spacer"></span>
-  <button class="btn" id="toScanBtn" hidden>Scan servos</button>
-  <button class="btn" id="toBoardBtn" hidden>Change board</button>
+  <button class="btn" id="toBoardBtn" hidden title="Disconnect and choose the driver board again">Reload Board</button>
 </header>
 
 <div class="wizard" id="wizard">
@@ -1147,7 +1146,6 @@ function renderView() {
   $("boardPill").hidden = !s.connected;
   $("boardName").textContent = s.port === "sim" ? "simulator" : s.port;
   $("rate").hidden = v !== "console";
-  $("toScanBtn").hidden = v !== "console";
   $("toBoardBtn").hidden = !s.connected;
 
   $("scanBoard").textContent = s.port === "sim" ? "simulator" : s.port || "";
@@ -1238,7 +1236,6 @@ $("finishScanBtn").onclick = () => send("finishScan").catch(() => {});
 $("quickRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 20; };
 $("fullRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 253; };
 $("openConsole").onclick = () => { state.wantScan = false; renderView(); };
-$("toScanBtn").onclick = () => { state.wantScan = true; renderView(); };
 const toBoard = async () => {
   await send("disconnect").catch(() => {});
   send("ports").catch(() => {});
