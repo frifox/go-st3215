@@ -3,6 +3,7 @@
 
 [1]
 Name = "Right Servo"
+Zero = 270.0
 
 [2]
 Name = "Left Servo"
