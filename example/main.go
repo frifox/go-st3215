@@ -850,7 +850,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "zeroReset": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -1147,12 +1147,6 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		return sv.SetTorqueLimit(req.Percent)
 	case "factoryReset":
 		return s.factoryReset(bus, req.ID)
-	case "zeroReset":
-		if err := sv.ResetZero(); err != nil {
-			return err
-		}
-		s.logf("info", "servo %d: position offset cleared (0)", req.ID)
-		return nil
 	case "zeroAt":
 		// Absolute: where the servo's 0° goes on the encoder scale. The servo's
 		// own zero replaces a virtual one, so that is cleared.

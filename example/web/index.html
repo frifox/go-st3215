@@ -453,16 +453,13 @@ td .num { width: 90px; padding: 3px 6px; }
         </div>
         <hr class="sep">
         <div class="row">
-          <span>Servo 0° as</span>
+          <span>Calibrate 0° to</span>
           <input class="num" type="number" id="zeroAtDeg" min="0" max="359.9" step="0.1" value="0" style="width:80px">
           <span>°</span>
           <button class="btn" id="zeroAtBtn">Set</button>
           <span>or</span>
           <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
-          <span class="spacer"></span>
-          <button class="btn small" id="zeroResetBtn" title="Position offset to 0: the servo reports the raw encoder angle">Clear offset</button>
         </div>
-        <p class="hint" id="posAsHint">Writes the servo's position offset so the current position reads that angle. Saved on the servo.</p>
         <hr class="sep">
         <div class="row">
           <span>Change ID to</span>
@@ -1814,15 +1811,7 @@ function servoZeroDeg(id) { return Math.round(wrap360(rawSteps(id, 0) * DEG) * 1
 function renderPosAsHint() {
   const id = state.selected;
   if (id === null || state.selGroup) return;
-  const z = servoZeroDeg(id);
-  if (document.activeElement !== $("zeroAtDeg")) $("zeroAtDeg").value = z;
-  let t = `The servo's 0° is at encoder ${z}° (position offset ${offsetOf(id)} steps), saved on the servo; all angles here are the servo's own readings, so every app sees the same angles.`;
-  t += " To make 0° physically straight up: move the arm there (check with a level) and press Current position. Set enters the offset in degrees; Clear offset sets it to 0 (the raw encoder angle). A factory reset sets a firmware default (85 steps), not the servo's original calibration.";
-  t += " The arm doesn't move when the zero changes; the readings change.";
-  if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
-  if (zeroOf(id)) t += ` Setting it replaces the virtual 0° (${zeroOf(id)}°) of this console.`;
-  if (state.mirrored?.has(id)) t += " This servo is mirrored: its dial turns the opposite way to its own arm, so it matches its partner.";
-  $("posAsHint").textContent = t;
+  if (document.activeElement !== $("zeroAtDeg")) $("zeroAtDeg").value = servoZeroDeg(id);
 }
 
 // setServoZero sets servo id's position offset to d° (its 0° at encoder d°).
@@ -1849,12 +1838,6 @@ $("zeroAtDeg").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("zeroAtBtn").click();
   if (e.key === "Escape") { $("zeroAtDeg").blur(); renderPosAsHint(); } // back to the saved zero
 });
-$("zeroResetBtn").onclick = async () => {
-  const id = state.selected;
-  if (!offsetOf(id)) return log(`Servo ${id} has no position offset already.`);
-  if (!await ask(`Clear servo ${id}'s position offset (${offsetOf(id)} steps → 0)?\n\nThe servo then reports the raw encoder angle. After a factory reset the offset is the factory calibration; Factory reset restores it. The arm stays where it is.`, "Clear")) return;
-  if (await cmd("zeroReset", {})) loadConfig(true);
-};
 
 // ---------------------------------------------------------------- edit servo dialog
 let svID = null;
