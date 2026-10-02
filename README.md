@@ -46,6 +46,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
 | Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |
 | Groups | `bus.Group(ids...)`: `MoveTo`, `EnableTorque`, `SetWheelSpeed`, `Align`, `CopyFromLeader`, `WaitForPosition`, `Feedback().Spread()` / `.Fighting()` (one packet per command) |
+| Auto-tuning | `autotune.Run(ctx, autotune.ForServo(s) / ForGroup(g), opts)`: finds P, D, start force and dead zone by test moves with the real load |
 | Monitoring | `Feedback` (position, speed, load, voltage, temperature, current, moving, status in one read), plus single getters |
 | Torque | `EnableTorque`, `SetTorqueLimit` (runtime), `SetMaxTorque` (persisted) |
 | Calibration | `CalibrateMiddle` (current position becomes 2048), `SetPositionOffset` |
@@ -96,6 +97,26 @@ fb, _ := pitch.WaitForPosition(ctx, 1500, st3215.WaitOptions{})
 if fb.Spread() > 20 || fb.Fighting(30) { /* members disagree on a shared axis */ }
 ```
 
+## Auto-tuning
+
+The `autotune` sub-package finds position-loop settings by experiment: it applies candidate values
+(until power-off), makes short test moves around the current position with the real load, and scores
+each response for accurate and calm motion (overshoot, wobble, hunting, and for groups how much the
+members disagree). It hill-climbs P, D, start force and dead zone (I is left alone) in about 15–30
+tests. Moves stay within ±35° and anything beyond 45° aborts; faults, high current or temperature
+abort too, and an abort restores the original values.
+
+```go
+res, err := autotune.Run(ctx, autotune.ForGroup(bus.Group(1, 2)), autotune.Options{})
+if err == nil {
+    fmt.Println(res.Before.Metrics, "→", res.Best.Metrics) // Best is active until power-off
+    autotune.SaveParams(autotune.ForGroup(bus.Group(1, 2)), res.Best.Params)
+}
+```
+
+Tune with the real load mounted, near the middle of the range you'll use, after mirroring and center
+calibration are set up. Grouped servos are always tuned together.
+
 ## Demo: web console
 
 [`example/`](example) is a WebSocket server plus a web page to set up, monitor and drive the servos.
@@ -107,8 +128,8 @@ The page walks through three steps:
 3. **Monitor & control**: only the servos found are shown. You get a live position dial, telemetry,
    30 s history charts, controls for every mode, setup actions (center calibration, ID change,
    multi-turn), a Tuning card (position loop gains, dead zones, start force, torque and protection,
-   with presets; **Try** applies until power-off, **Save** persists) and an editable view of the
-   full memory table.
+   with presets and **Auto…** tuning; **Try** applies until power-off, **Save** persists) and an
+   editable view of the full memory table.
 
 ```bash
 cd example
@@ -137,7 +158,7 @@ Mirrored = true
 **Groups** (sidebar → New group) drive their members together from one console: one needle and
 one chart line per servo (each servo keeps its own color everywhere), a row per member, and a Group
 health card with spread, opposing load, fight protection (warn, or cut torque), Align and Copy
-tuning. Groups and colors are stored in `config.toml`:
+tuning (plus Auto-tune group). Groups and colors are stored in `config.toml`:
 
 ```toml
 [group.pitch]

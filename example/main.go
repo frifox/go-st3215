@@ -135,6 +135,7 @@ type server struct {
 	refresh    map[uint8]*pendingRefresh
 	tried      map[uint8]map[string]int // values applied with "Try" but not saved, per servo
 	fights     map[string]*fightState   // fight protection per group key
+	at         *autotuneRun             // current or last auto-tune run
 	clients    map[*client]struct{}
 }
 
@@ -311,6 +312,7 @@ func (s *server) connect(port string, baud int) error {
 }
 
 func (s *server) disconnect() {
+	s.stopAutotune()
 	s.mu.Lock()
 	if s.scanCancel != nil {
 		s.scanCancel(nil)
@@ -550,6 +552,9 @@ type request struct {
 	MaxSpread    int     `json:"maxSpread"`
 	MaxFightLoad float64 `json:"maxFightLoad"`
 	OnFight      string  `json:"onFight"`
+	// Auto-tune
+	Amplitude float64 `json:"amplitude"` // degrees either side of the start
+	Tolerance int     `json:"tolerance"` // steps
 }
 
 type regValue struct {
@@ -576,6 +581,9 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	c.push(helloMsg{Type: "hello", ClientID: c.id})
 	c.push(s.stateMsg())
+	if m := s.autotuneState(); m != nil {
+		c.push(*m)
+	}
 
 	done := make(chan struct{})
 	go func() { // writer
@@ -612,7 +620,7 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 			c.push(resultMsg{Type: "result", Seq: req.Seq, Error: "bad request: " + err.Error()})
 			continue
 		}
-		if req.Type == "scan" {
+		if req.Type == "scan" || req.Type == "autotune" { // long-running
 			go s.handle(c, req)
 			continue
 		}
@@ -892,6 +900,13 @@ func (s *server) exec(c *client, req request) error {
 		return nil
 	case "groupSave":
 		return s.groupSave(req)
+	case "autotune":
+		return s.startAutotune(req)
+	case "autotuneStop":
+		s.stopAutotune()
+		return nil
+	case "autotuneSave", "autotuneRevert":
+		return s.finishAutotune(req.Type == "autotuneSave")
 	case "groupDelete":
 		g, _ := s.cfg.group(req.Group)
 		if err := s.cfg.deleteGroup(req.Group); err != nil {
@@ -900,6 +915,19 @@ func (s *server) exec(c *client, req request) error {
 		s.logf("info", "group %s deleted", g.Name)
 		s.broadcastState()
 		return nil
+	}
+	// Don't let other commands move servos while auto-tune is testing them.
+	if changesServo[req.Type] {
+		ids := []uint8{req.ID}
+		if req.Group != "" {
+			g, _ := s.cfg.group(req.Group)
+			ids = g.Members
+		}
+		for _, id := range ids {
+			if s.tuning(id) {
+				return fmt.Errorf("servo %d is being auto-tuned; stop the auto-tune first", id)
+			}
+		}
 	}
 	if req.Group != "" {
 		return s.withBus(func(bus *st3215.Bus) error { return s.groupCommand(bus, req) })

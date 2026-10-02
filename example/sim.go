@@ -23,6 +23,7 @@ type simServo struct {
 	mem    [71]byte
 	pos    float64 // physical position in steps (multi-turn, unwrapped)
 	vel    float64 // step/s
+	mvel   float64 // velocity of the simulated load in position/step mode
 	duty   float64 // -1..1 drive duty, for load/current
 	regBuf []byte
 	last   time.Time
@@ -211,6 +212,9 @@ func (s *simServo) step(now time.Time) {
 	torque := m[40] == 1
 	maxSpeed := 3400.0 * float64(get16(m, 48)) / 1000
 	s.vel, s.duty = 0, 0
+	if !torque || (m[33] != 0 && m[33] != 3) {
+		s.mvel = 0
+	}
 
 	if torque {
 		switch m[33] {
@@ -225,16 +229,37 @@ func (s *simServo) step(now time.Time) {
 			if sp == 0 || sp > maxSpeed {
 				sp = maxSpeed
 			}
-			d := goal - s.pos
-			move := math.Copysign(math.Min(math.Abs(d), sp*dt), d)
-			s.pos += move
-			if dt > 0 {
-				s.vel = move / dt
+			// Position loop driven by the servo's own gains (P 21, D 22,
+			// start force 24, dead zone 26) on a simulated load with inertia
+			// and friction, so tuning changes the response like on hardware.
+			kp, kd := float64(m[21]), float64(m[22])
+			minStart, dz := float64(get16(m, 24))*2, float64(m[26])
+			limit := 3000 * float64(get16(m, 48)) / 1000
+			const friction, inertia = 100.0, 1.0
+			var u float64
+			for t := 0.0; t < math.Min(dt, 1); t += 0.001 {
+				h := math.Min(0.001, dt-t)
+				e := goal - s.pos
+				if math.Abs(e) > dz {
+					u = kp*e*3 - kd*s.mvel*0.4
+					if math.Abs(u) < minStart {
+						u = math.Copysign(minStart, u)
+					}
+				} else {
+					u = -kd * s.mvel * 0.4
+				}
+				u = math.Max(-limit, math.Min(limit, u))
+				a := u / inertia
+				if math.Abs(s.mvel) < 1 && math.Abs(u) < friction {
+					s.mvel, a = 0, 0
+				} else {
+					a -= math.Copysign(friction, s.mvel) / inertia
+				}
+				s.mvel = math.Max(-sp, math.Min(sp, s.mvel+a*h))
+				s.pos += s.mvel * h
 			}
-			s.duty = math.Copysign(math.Min(1, 0.15+math.Abs(s.vel)/3400*0.5), d)
-			if math.Abs(d) < 1 {
-				s.duty = 0.02 * math.Copysign(1, d)
-			}
+			s.vel = s.mvel
+			s.duty = math.Max(-1, math.Min(1, u/3000))
 		case 1: // wheel
 			s.vel = math.Max(-maxSpeed, math.Min(maxSpeed, float64(signMag(get16(m, 46), 15))))
 			s.pos += s.vel * dt
