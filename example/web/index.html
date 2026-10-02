@@ -633,6 +633,10 @@ td .num { width: 90px; padding: 3px 6px; }
         <span style="width:90px">Mirrored</span>
         <label class="switch"><input type="checkbox" id="svMirrored"><span class="track"></span><span class="hint">reverse direction (servo faces its partner)</span></label>
       </div>
+      <div class="row">
+        <span style="width:90px">±180°</span>
+        <label class="switch"><input type="checkbox" id="svSigned"><span class="track"></span><span class="hint">show angles as −180…+180° instead of 0…360°</span></label>
+      </div>
       <hr class="sep">
       <div class="row" style="margin-top:0">
         <span style="width:90px">Virtual 0°</span>
@@ -753,7 +757,10 @@ function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
 // The servo reports positions within one turn even in multi-turn mode, so shown
 // angles are always 0..360.
-function vdeg(id, steps) { return wrap360(steps * DEG - displayZero(id)); }
+function vdeg(id, steps) { return signedDeg(id, wrap360(steps * DEG - displayZero(id))); }
+// Servos set to "±180°" show angles as -180..180 (0..360 otherwise).
+function signedOf(id) { return !!state.signed?.has(id); }
+function signedDeg(id, d) { return signedOf(id) && d > 180 ? d - 360 : d; }
 // stepsFromVdeg: shown degrees -> steps for servo id.
 function stepsFromVdeg(id, d) { return Math.round(wrap360(d + displayZero(id)) / DEG) % STEPS; }
 const fmtDeg = (d) => `${d.toFixed(1)}°`;
@@ -1065,9 +1072,9 @@ function polar(deg, r) { const a = (deg - 90) * Math.PI / 180; return [C + r * M
 
 // Ticks sit at physical angles; labels show the shown (virtual) degrees.
 let ticksZero = null;
-function buildTicks(zero = 0) {
-  if (zero === ticksZero) return;
-  ticksZero = zero;
+function buildTicks(zero = 0, signed = false) {
+  if (`${zero}/${signed}` === ticksZero) return;
+  ticksZero = `${zero}/${signed}`;
   let s = "";
   for (let d = 0; d < 360; d += 10) {
     const major = d % 90 === 0, mid = d % 30 === 0;
@@ -1075,7 +1082,8 @@ function buildTicks(zero = 0) {
     s += `<line class="tick" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${major ? 2 : 1}"/>`;
     if (mid) {
       const [lx, ly] = polar(d, R - 14);
-      const v = Math.round(wrap360(d - zero) * 10) / 10;
+      let v = Math.round(wrap360(d - zero) * 10) / 10;
+      if (signed && v > 180) v = Math.round((v - 360) * 10) / 10;
       s += `<text class="lbl" x="${lx}" y="${ly}">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
     }
   }
@@ -1085,7 +1093,8 @@ buildTicks(0);
 
 // One needle per shown servo, in that servo's color.
 function buildNeedles() {
-  buildTicks(state.selected === null ? 0 : labelZero(members()[0] ?? state.selected));
+  const lead = members()[0] ?? state.selected;
+  buildTicks(state.selected === null ? 0 : labelZero(lead), signedOf(lead));
   $("needles").innerHTML = members().map((id) =>
     `<line class="needle" data-id="${id}" x1="120" y1="120" x2="120" y2="120" style="stroke:${colorOf(id)}"/>`).join("");
 }
@@ -1199,7 +1208,7 @@ function onConfig(m) {
   $("selInfo").textContent = `servo v${c.servoMajor}.${c.servoMinor} · fw ${c.firmwareMajor}.${c.firmwareMinor} · ${c.baudRate === 0 ? "1 Mbps" : "baud idx " + c.baudRate}`;
   $("multiturn").checked = isMultiTurn(c);
   setMode(c.mode);
-  buildTicks(labelZero(members()[0] ?? m.id)); // the offset may have changed
+  buildTicks(labelZero(members()[0] ?? m.id), signedOf(members()[0] ?? m.id)); // the offset may have changed
   setLimitArc(c.minAngleLimit, c.maxAngleLimit);
   renderPosAsHint();
   const t = $("target");
@@ -1605,6 +1614,7 @@ function onState(m) {
   if (!m.scanning) $("scanBar").style.width = m.scanned ? "100%" : "0";
   setServos(m.ids);
   state.mirrored = new Set(m.mirrored || []);
+  state.signed = new Set(m.signed || []);
   state.names = m.names || {};
   state.colors = m.colors || {};
   state.zeros = m.zeros || {};
@@ -1883,6 +1893,7 @@ function openServoEdit() {
   $("svColor").value = colorOf(svID);
   $("svColor").dataset.custom = (state.colors || {})[svID] ? "1" : "";
   $("svMirrored").checked = !!state.mirrored?.has(svID);
+  $("svSigned").checked = signedOf(svID);
   $("svZero").value = zeroOf(svID);
   $("svDialUp").value = dialUpOf(svID);
   $("svErr").textContent = "";
@@ -1948,7 +1959,7 @@ $("svSave").onclick = async () => {
   const id = svID;
   try {
     await send("servoEdit", { id, name: $("svName").value.trim(), color: $("svColor").dataset.custom ? $("svColor").value : "",
-      on: $("svMirrored").checked, zero, dialUp });
+      on: $("svMirrored").checked, signed: $("svSigned").checked, zero, dialUp });
     log(`servo ${id} settings saved`);
     closeServoEdit();
   } catch (e) { $("svErr").textContent = e.message; }

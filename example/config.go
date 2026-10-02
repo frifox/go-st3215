@@ -21,9 +21,10 @@ import (
 type servoConfig struct {
 	Name     string  `toml:"Name,omitempty"`
 	Mirrored bool    `toml:"Mirrored,omitempty"`
-	Color    string  `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
-	Zero     float64 `toml:"Zero,omitzero"`   // virtual 0° (degrees, 0..360): shown angle = physical - Zero
-	DialUp   float64 `toml:"DialUp,omitzero"` // encoder-scale angle at which the arm points physically up (dial orientation)
+	Signed   bool    `toml:"Signed,omitempty"` // show angles as -180..180 instead of 0..360
+	Color    string  `toml:"Color,omitempty"`  // "#rrggbb"; empty = palette color by ID
+	Zero     float64 `toml:"Zero,omitzero"`    // virtual 0° (degrees, 0..360): shown angle = physical - Zero
+	DialUp   float64 `toml:"DialUp,omitzero"`  // encoder-scale angle at which the arm points physically up (dial orientation)
 }
 
 func (c servoConfig) empty() bool { return c == servoConfig{} }
