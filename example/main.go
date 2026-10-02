@@ -134,9 +134,9 @@ type server struct {
 	scanCancel context.CancelCauseFunc
 	cfg        *config // config.toml: names and mirrored state per ID
 	refresh    map[uint8]*pendingRefresh
-	tried      map[uint8]map[string]int // values applied with "Try" but not saved, per servo
-	fights     map[string]*fightState   // fight protection per group key
-	at         *autotuneRun             // current or last auto-tune run
+	tried      map[uint8]map[string]triedValue // values applied with "Try" but not saved, per servo
+	fights     map[string]*fightState          // fight protection per group key
+	at         *autotuneRun                    // current or last auto-tune run
 	clients    map[*client]struct{}
 }
 
@@ -536,6 +536,7 @@ type configMsg struct {
 	Config    st3215.Config  `json:"config"`
 	Registers []registerInfo `json:"registers"`
 	Tried     map[string]int `json:"tried"` // tuning values tried but not saved
+	Saved     map[string]int `json:"saved"` // for each tried value, the value saved on the servo
 }
 
 // request is a command from the browser. Only the fields relevant to Type
@@ -952,7 +953,8 @@ func (s *server) readConfigMsg(bus *st3215.Bus, id uint8) (configMsg, error) {
 		regs[i] = registerInfo{Name: r.Name, Addr: r.Addr, Size: r.Size, Area: r.Area.String(),
 			ReadOnly: r.ReadOnly, Min: r.Min, Max: r.Max, Unit: r.Unit, Value: r.Value(mem)}
 	}
-	return configMsg{Type: "config", ID: id, Config: cfg, Registers: regs, Tried: s.triedValues(id, regs)}, nil
+	tried, saved := s.triedValues(id, regs)
+	return configMsg{Type: "config", ID: id, Config: cfg, Registers: regs, Tried: tried, Saved: saved}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -962,22 +964,40 @@ func (s *server) readConfigMsg(bus *st3215.Bus, id uint8) (configMsg, error) {
 // until it is power-cycled. Reading the servo back can't tell tried values
 // from saved ones, so the server remembers them; "Save" can then persist them.
 
-func (s *server) setTried(id uint8, values []regValue, save bool) {
+type triedValue struct {
+	Value int // active until power-off
+	Saved int // stored on the servo (what a power-cycle brings back)
+}
+
+// setTried records values written with "Try" (save false) or saved (save
+// true). saved holds each register's value before the write; it is only used
+// for registers that weren't tried yet. Trying the saved value again ends the
+// trial.
+func (s *server) setTried(id uint8, values []regValue, save bool, saved map[string]int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.tried == nil {
-		s.tried = map[uint8]map[string]int{}
+		s.tried = map[uint8]map[string]triedValue{}
 	}
 	t := s.tried[id]
 	if t == nil {
-		t = map[string]int{}
+		t = map[string]triedValue{}
 		s.tried[id] = t
 	}
 	for _, v := range values {
 		if save {
 			delete(t, v.Register)
+			continue
+		}
+		tv, ok := t[v.Register]
+		if !ok {
+			tv.Saved = saved[v.Register]
+		}
+		tv.Value = v.Value
+		if tv.Value == tv.Saved {
+			delete(t, v.Register)
 		} else {
-			t[v.Register] = v.Value
+			t[v.Register] = tv
 		}
 	}
 	if len(t) == 0 {
@@ -988,15 +1008,17 @@ func (s *server) setTried(id uint8, values []regValue, save bool) {
 // triedValues returns the tried values still active on the servo. Entries
 // whose register no longer holds the tried value (the servo was power-cycled
 // and reverted) are forgotten.
-func (s *server) triedValues(id uint8, regs []registerInfo) map[string]int {
+// The second map has the saved value of each.
+func (s *server) triedValues(id uint8, regs []registerInfo) (map[string]int, map[string]int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.tried[id]
-	out := map[string]int{}
+	out, saved := map[string]int{}, map[string]int{}
 	for _, r := range regs {
 		if v, ok := t[r.Name]; ok {
-			if r.Value == v {
-				out[r.Name] = v
+			if r.Value == v.Value {
+				out[r.Name] = v.Value
+				saved[r.Name] = v.Saved
 			} else {
 				delete(t, r.Name)
 			}
@@ -1005,7 +1027,7 @@ func (s *server) triedValues(id uint8, regs []registerInfo) map[string]int {
 	if len(t) == 0 {
 		delete(s.tried, id)
 	}
-	return out
+	return out, saved
 }
 
 func (s *server) exec(c *client, req request) error {
@@ -1200,13 +1222,21 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if err := sv.Write(reg, req.Value); err != nil {
 			return err
 		}
-		s.setTried(req.ID, []regValue{{Register: reg.Name, Value: req.Value}}, true) // now saved
+		s.setTried(req.ID, []regValue{{Register: reg.Name, Value: req.Value}}, true, nil) // now saved
 		return nil
 	case "tune":
+		before := map[string]int{} // for Try: the values to go back to
 		for _, rv := range req.Values {
 			reg, ok := st3215.RegisterByName(rv.Register)
 			if !ok {
 				return fmt.Errorf("unknown register %q", rv.Register)
+			}
+			if !req.Save {
+				v, err := sv.Read(reg)
+				if err != nil {
+					return fmt.Errorf("%s: %w", reg.Name, err)
+				}
+				before[reg.Name] = v
 			}
 			write := sv.WriteTemporary
 			if req.Save {
@@ -1216,7 +1246,7 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 				return fmt.Errorf("%s: %w", reg.Name, err)
 			}
 		}
-		s.setTried(req.ID, req.Values, req.Save)
+		s.setTried(req.ID, req.Values, req.Save, before)
 		how := "until power-off"
 		if req.Save {
 			how = "saved"

@@ -142,7 +142,11 @@ func (s *server) startAutotune(req request) error {
 				}
 			}
 			for _, id := range run.members {
-				s.setTried(id, changed, false)
+				saved := map[string]int{}
+				for _, v := range tunedValues(res.Before.Params) {
+					saved[v.Register] = v.Value
+				}
+				s.setTried(id, changed, false, saved)
 			}
 			s.logf("info", "auto-tune of %s done: %s (until power-off; Save to keep)", run.label, res.Best.Params)
 		}
@@ -178,7 +182,7 @@ func (s *server) finishAutotune(save bool) error {
 					errs = append(errs, fmt.Errorf("servo %d %s: %w", id, reg.Name, err))
 				}
 			}
-			s.setTried(id, tunedValues(p), true) // saved, or back to the stored values
+			s.setTried(id, tunedValues(p), true, nil) // saved, or back to the stored values
 		}
 		return errors.Join(errs...)
 	})

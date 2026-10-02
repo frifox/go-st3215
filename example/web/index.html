@@ -168,7 +168,7 @@ td .num { width: 90px; padding: 3px 6px; }
 .col { display: grid; gap: 16px; align-content: start; min-width: 0; }
 .tune-group { margin-bottom: 12px; }
 .tune-group h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 650; }
-.tune-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 64px 84px; gap: 8px; align-items: center; margin-bottom: 4px; }
+.tune-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 64px 84px 22px; gap: 8px; align-items: center; margin-bottom: 4px; }
 .tune-row label { font-size: 13px; cursor: help; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tune-row.changed label { color: var(--accent); font-weight: 600; }
 .tune-row.changed label::before { content: "● "; font-size: 9px; vertical-align: middle; }
@@ -177,7 +177,10 @@ td .num { width: 90px; padding: 3px 6px; }
 .tune-row.tried label::before { content: "● "; font-size: 9px; vertical-align: middle; }
 #tuneStatus.warn { color: var(--warn); }
 .tune-row .unit { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
-@media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px; } .tune-row .unit { display: none; } }
+.tune-row .reset { visibility: hidden; width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.tune-row .reset:hover { color: var(--text); border-color: var(--accent); }
+.tune-row.changed .reset, .tune-row.tried .reset { visibility: visible; }
+@media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px 22px; } .tune-row .unit { display: none; } }
 /* groups & colors */
 .side-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 8px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
 .side-head:not(:first-child) { margin-top: 16px; }
@@ -1249,7 +1252,7 @@ function onConfig(m) {
   }
   // Don't rebuild the table under the user's cursor; it refreshes on the next update.
   if (!$("regs").contains(document.activeElement)) renderRegisters(m.registers);
-  updateTuning(m.id, m.registers, m.tried);
+  updateTuning(m.id, m.registers, m.tried, m.saved);
 }
 
 // The Torque Lock box is on when every shown servo holds torque, mixed otherwise.
@@ -1541,7 +1544,7 @@ const PRESETS = {
   heavy: { PositionP: 40, PositionD: 80, PositionI: 0, MinStartForce: 30, CWDeadZone: 1, CCWDeadZone: 1 },
   stiff: { PositionP: 64, PositionD: 64, PositionI: 0, MinStartForce: 40, CWDeadZone: 0, CCWDeadZone: 0 },
 };
-state.tune = { id: null, base: {}, cur: {}, tried: {} }; // tried: applied with Try, not saved
+state.tune = { id: null, base: {}, cur: {}, tried: {}, saved: {} }; // tried: applied with Try, not saved; saved: what the servo has stored for those
 
 (function buildTuning() {
   const body = $("tuneBody");
@@ -1554,8 +1557,10 @@ state.tune = { id: null, base: {}, cur: {}, tried: {} }; // tried: applied with 
       row.className = "tune-row";
       row.id = "tune-" + it.reg;
       row.innerHTML = `<label title="${it.hint}">${it.label}</label><input type="range" min="0" max="${it.max}">` +
-        `<input type="number" class="num" min="0"><span class="unit"></span>`;
+        `<input type="number" class="num" min="0"><span class="unit"></span>` +
+        `<button class="reset" title="Back to the saved value">↺</button>`;
       const [range, num] = row.querySelectorAll("input");
+      row.querySelector(".reset").onclick = () => resetTune(it.reg);
       range.oninput = () => setTune(it.reg, Number(range.value));
       num.onchange = () => setTune(it.reg, Number(num.value));
       sec.appendChild(row);
@@ -1575,6 +1580,24 @@ function tuneChanges() {
     .map((it) => ({ register: it.reg, value: state.tune.cur[it.reg] }));
 }
 
+// resetTune puts one value back to what is saved on the servo: an edit is
+// dropped, and a tried value is replaced by the saved one on the servo.
+async function resetTune(reg) {
+  const t = state.tune;
+  if (t.tried[reg] === undefined) {
+    t.cur[reg] = t.base[reg];
+    return renderTuning();
+  }
+  const v = t.saved[reg];
+  if (v === undefined) return;
+  if (await cmd("tune", { values: [{ register: reg, value: v }], save: false }, `${reg} back to the saved ${v}`)) {
+    t.cur[reg] = t.base[reg] = v;
+    delete t.tried[reg];
+    renderTuning();
+    loadConfig(false);
+  }
+}
+
 function setTune(reg, v) {
   state.tune.cur[reg] = v;
   renderTuning();
@@ -1591,6 +1614,8 @@ function renderTuning() {
     const changed = v !== state.tune.base[it.reg];
     row.classList.toggle("changed", changed);
     row.classList.toggle("tried", !changed && state.tune.tried[it.reg] === v);
+    const tried = state.tune.tried[it.reg] !== undefined && state.tune.saved[it.reg] !== undefined;
+    row.querySelector(".reset").title = tried ? `Back to the saved value (${state.tune.saved[it.reg]})` : `Back to ${state.tune.base[it.reg]}`;
   }
   const n = tuneChanges().length, t = triedUnsaved().length;
   const parts = [];
@@ -1605,13 +1630,14 @@ function renderTuning() {
 }
 
 // Called with the register list of a config message.
-function updateTuning(id, regs, tried) {
+function updateTuning(id, regs, tried, saved) {
   const vals = Object.fromEntries(regs.map((r) => [r.name, r.value]));
   const switched = state.tune.id !== id;
   const pending = !switched && tuneChanges().length > 0;
   state.tune.id = id;
   state.tune.base = vals;
   state.tune.tried = tried || {};
+  state.tune.saved = saved || {};
   if (!pending) state.tune.cur = { ...vals };
   renderTuning();
 }
