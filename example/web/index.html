@@ -161,6 +161,9 @@ td .num { width: 90px; padding: 3px 6px; }
 .tune-row.changed label { color: var(--accent); font-weight: 600; }
 .tune-row.changed label::before { content: "● "; font-size: 9px; vertical-align: middle; }
 .tune-row .num { padding: 3px 6px; }
+.tune-row.tried label { color: var(--warn); font-weight: 600; }
+.tune-row.tried label::before { content: "● "; font-size: 9px; vertical-align: middle; }
+#tuneStatus.warn { color: var(--warn); }
 .tune-row .unit { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
 @media (max-width: 520px) { .tune-row { grid-template-columns: 100px minmax(0, 1fr) 56px; } .tune-row .unit { display: none; } }
 /* setup steps */
@@ -426,7 +429,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <button class="btn" id="tuneTry" disabled title="Apply now; the servo goes back to its saved values when powered off">Try</button>
           <button class="btn primary" id="tuneSave" disabled title="Apply and save to the servo's EEPROM">Save</button>
         </div>
-        <p class="hint"><b>Try</b> applies the values until the servo is powered off, so you can test them with the real load. <b>Save</b> stores them on the servo. Presets are starting points: adjust one value at a time and watch the History chart after a move. Use a non-zero acceleration in Control.</p>
+        <p class="hint"><b>Try</b> applies the values until the servo is powered off, so you can test them with the real load. <b>Save</b> stores them on the servo, including values tried earlier (amber). With nothing pending, Save stores all current values. Presets are starting points: adjust one value at a time and watch the History chart after a move. Use a non-zero acceleration in Control.</p>
       </div>
     </section>
     </div>
@@ -768,7 +771,7 @@ function onConfig(m) {
   }
   // Don't rebuild the table under the user's cursor; it refreshes on the next update.
   if (!$("regs").contains(document.activeElement)) renderRegisters(m.registers);
-  updateTuning(m.id, m.registers);
+  updateTuning(m.id, m.registers, m.tried);
 }
 
 function renderRegisters(regs) {
@@ -959,7 +962,7 @@ const PRESETS = {
   heavy: { PositionP: 40, PositionD: 80, PositionI: 0, MinStartForce: 30, CWDeadZone: 1, CCWDeadZone: 1 },
   stiff: { PositionP: 64, PositionD: 64, PositionI: 0, MinStartForce: 40, CWDeadZone: 0, CCWDeadZone: 0 },
 };
-state.tune = { id: null, base: {}, cur: {} };
+state.tune = { id: null, base: {}, cur: {}, tried: {} }; // tried: applied with Try, not saved
 
 (function buildTuning() {
   const body = $("tuneBody");
@@ -982,6 +985,12 @@ state.tune = { id: null, base: {}, cur: {} };
   }
 })();
 
+// Tried values still active and not edited further: Save persists these.
+function triedUnsaved() {
+  return TUNE_ITEMS.filter((it) => state.tune.tried[it.reg] !== undefined && state.tune.cur[it.reg] === state.tune.tried[it.reg])
+    .map((it) => ({ register: it.reg, value: state.tune.tried[it.reg] }));
+}
+
 function tuneChanges() {
   return TUNE_ITEMS.filter((it) => state.tune.cur[it.reg] !== undefined && state.tune.cur[it.reg] !== state.tune.base[it.reg])
     .map((it) => ({ register: it.reg, value: state.tune.cur[it.reg] }));
@@ -1000,28 +1009,50 @@ function renderTuning() {
     range.value = v;
     if (document.activeElement !== num) num.value = v;
     row.querySelector(".unit").textContent = it.fmt ? it.fmt(v) : "";
-    row.classList.toggle("changed", v !== state.tune.base[it.reg]);
+    const changed = v !== state.tune.base[it.reg];
+    row.classList.toggle("changed", changed);
+    row.classList.toggle("tried", !changed && state.tune.tried[it.reg] === v);
   }
-  const n = tuneChanges().length;
-  $("tuneStatus").textContent = n ? `${n} change${n > 1 ? "s" : ""} not applied` : "No changes";
-  ["tuneRevert", "tuneTry", "tuneSave"].forEach((id) => ($(id).disabled = !n));
+  const n = tuneChanges().length, t = triedUnsaved().length;
+  const parts = [];
+  if (n) parts.push(`${n} change${n > 1 ? "s" : ""} not applied`);
+  if (t) parts.push(`${t} tried value${t > 1 ? "s" : ""} not saved`);
+  $("tuneStatus").textContent = parts.length ? parts.join(" · ") : "No changes";
+  $("tuneStatus").classList.toggle("warn", t > 0);
+  $("tuneRevert").disabled = !n;
+  $("tuneTry").disabled = !n;
+  $("tuneSave").disabled = false; // with nothing pending it saves all current values
 }
 
 // Called with the register list of a config message.
-function updateTuning(id, regs) {
+function updateTuning(id, regs, tried) {
   const vals = Object.fromEntries(regs.map((r) => [r.name, r.value]));
   const switched = state.tune.id !== id;
   const pending = !switched && tuneChanges().length > 0;
   state.tune.id = id;
   state.tune.base = vals;
+  state.tune.tried = tried || {};
   if (!pending) state.tune.cur = { ...vals };
   renderTuning();
 }
 
 async function applyTuning(save) {
-  const values = tuneChanges();
+  let values = tuneChanges();
+  if (save) {
+    // Save also persists values that were tried earlier and not saved yet.
+    const edited = new Set(values.map((v) => v.register));
+    values = values.concat(triedUnsaved().filter((v) => !edited.has(v.register)));
+  }
+  if (save && !values.length) {
+    // Nothing tracked (e.g. values tried before the server restarted): save
+    // everything currently active on the servo.
+    values = TUNE_ITEMS.filter((it) => state.tune.cur[it.reg] !== undefined).map((it) => ({ register: it.reg, value: state.tune.cur[it.reg] }));
+    if (!confirm(`No unsaved changes are tracked. Save all ${values.length} current tuning values to servo ${state.selected}'s EEPROM?`)) return;
+    return void (await cmd("tune", { values, save: true }, `saved all ${values.length} tuning values`) && loadConfig(false));
+  }
   if (!values.length) return;
-  if (save && !confirm(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?`)) return;
+  if (save && !confirm(`Save ${values.length} value(s) to servo ${state.selected}'s EEPROM?\n\n` +
+    values.map((v) => `${v.register} = ${v.value}`).join("\n"))) return;
   const ok = await cmd("tune", { values, save }, `tuned ${values.length} value(s), ${save ? "saved" : "until power-off"}`);
   if (ok) {
     state.tune.base = { ...state.tune.base, ...Object.fromEntries(values.map((v) => [v.register, v.value])) };
