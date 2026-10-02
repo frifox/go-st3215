@@ -413,9 +413,9 @@ td .num { width: 90px; padding: 3px 6px; }
             <label>Target</label>
             <input type="range" id="target" min="0" max="4095" value="2048">
             <span class="target-inputs">
-              <input class="num" type="number" id="targetNum" value="2048"><span>steps</span>
-              <span class="or">or</span>
               <input class="num" type="number" id="targetDegNum" step="0.1" value="180"><span>°</span>
+              <span class="or">or</span>
+              <input class="num" type="number" id="targetNum" value="2048"><span>steps</span>
             </span>
           </div>
           <div class="row">
@@ -466,11 +466,11 @@ td .num { width: 90px; padding: 3px 6px; }
         <hr class="sep">
         <div class="row">
           <span>Calibrate 0° to</span>
+          <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
+          <span>or</span>
           <input class="num" type="number" id="zeroAtDeg" min="0" max="359.9" step="0.1" value="0" style="width:80px">
           <span>°</span>
           <button class="btn" id="zeroAtBtn">Set</button>
-          <span>or</span>
-          <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
         </div>
         <hr class="sep">
         <div class="row">
