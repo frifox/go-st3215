@@ -641,7 +641,7 @@ td .num { width: 90px; padding: 3px 6px; }
         <button class="btn small" id="svDialUpHere" title="The arm is pointing straight up right now">Arm is up now</button>
         <button class="btn small" id="svDialUpClear">Reset</button>
       </div>
-      <p class="hint">Dial orientation: where this servo's arm points physically straight up, on the encoder scale (the reading with no position offset). The dial is turned so its needle matches the real arm; zeros and readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
+      <p class="hint">Dial orientation: the servo reading at which the arm points physically straight up. Normally 0 (set the servo 0° there instead, in Setup); use this only if 0° is meant to be elsewhere. The dial is turned so its needle matches the real arm; readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
       <div class="err" id="svErr"></div>
       <div class="row" style="margin-top:16px">
         <button class="btn danger" id="svFactory" title="Send the servo's RESET command: all saved settings back to factory">Factory reset</button>
@@ -724,23 +724,20 @@ function colorOf(id) { return (state.colors || {})[id] || PALETTE[(((id - 1) % P
 // Virtual zero: shown angle = physical angle - zero (config.toml "Zero").
 // Steps, the dial geometry and anything stored on the servo stay physical.
 function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
-// The dial is drawn in the servo's raw frame (reported position + its
-// PositionOffset), so changing the offset on the servo doesn't move the
-// needle, only the labels, just like the virtual zero.
+// Angles are the servo's own reading: its PositionOffset is the calibration
+// that makes 0° a physical direction (straight up, once set with Current
+// position). rawSteps (reading + offset) is the encoder angle, used only to
+// show and set that offset.
 function offsetOf(id) { return state.cfg[id]?.positionOffset ?? 0; }
 function rawSteps(id, steps) { return steps + (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); }
-// Dial orientation: the encoder-scale angle (offset 0) at which this servo's arm points
-// physically up (config.toml "DialUp"), so the needle matches the real arm.
+// Dial orientation: the reading at which this servo's arm points physically
+// up (config.toml "DialUp"; normally 0 once the servo 0° is set there).
 function dialUpOf(id) { return Number((state.dialUps || {})[id] || 0); }
 // screenDeg: where a position is drawn on the dial (0 = top of the dial).
-function screenDeg(id, steps) { return rawSteps(id, steps) * DEG - dialUpOf(id); }
-// The console measures angles from the encoder: the servo's PositionOffset
-// (its factory calibration, or a zero set below) is added back, so 0° is
-// always the same physical direction, whatever the servo reports to others.
-function calibSteps(id) { return (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); }
-// displayZero: everything subtracted from the servo's reading to get the shown angle.
-function displayZero(id) { return zeroOf(id) - calibSteps(id) * DEG; }
-function labelZero(id) { return rawSteps(id, 0) * DEG + displayZero(id) - dialUpOf(id); }
+function screenDeg(id, steps) { return steps * DEG - dialUpOf(id); }
+// displayZero: subtracted from the servo's reading to get the shown angle.
+function displayZero(id) { return zeroOf(id); }
+function labelZero(id) { return displayZero(id) - dialUpOf(id); }
 function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
 function wrap360(d) { return ((d % 360) + 360) % 360; }
 // vdeg: steps -> shown degrees for servo id.
@@ -1812,16 +1809,16 @@ $("colorPick").addEventListener("change", (e) => {
 // always shows the zero currently saved on the servo.
 // The servo's own zero: its PositionOffset in degrees (the encoder angle at
 // which the servo reports 0°).
-function servoZeroDeg(id) { return Math.round(wrap360(calibSteps(id) * DEG) * 10) / 10; }
+function servoZeroDeg(id) { return Math.round(wrap360(rawSteps(id, 0) * DEG) * 10) / 10; }
 
 function renderPosAsHint() {
   const id = state.selected;
   if (id === null || state.selGroup) return;
   const z = servoZeroDeg(id);
   if (document.activeElement !== $("zeroAtDeg")) $("zeroAtDeg").value = z;
-  let t = `The servo's position offset: ${offsetOf(id)} steps (${z}°). After a factory reset this is the factory calibration.`;
-  t += " This console always measures angles from the encoder (it adds the offset back), so its 0° is the same physical direction whatever the offset; the offset only changes what the servo itself reports, e.g. to other software.";
-  t += " Set writes the offset in degrees; Current position makes the servo report 0° where the arm is now; Clear offset sets it to 0. Every app sees the same angles. The arm doesn't move; the dial labels and readouts change.";
+  let t = `The servo's 0° is at encoder ${z}° (position offset ${offsetOf(id)} steps), saved on the servo; all angles here are the servo's own readings, so every app sees the same angles.`;
+  t += " To make 0° physically straight up: move the arm there (check with a level) and press Current position. Set enters the offset in degrees; Clear offset sets it to 0 (the raw encoder angle). A factory reset sets a firmware default (85 steps), not the servo's original calibration.";
+  t += " The arm doesn't move when the zero changes; the readings change.";
   if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
   if (zeroOf(id)) t += ` Setting it replaces the virtual 0° (${zeroOf(id)}°) of this console.`;
   if (state.mirrored?.has(id)) t += " This servo is mirrored: its dial turns the opposite way to its own arm, so it matches its partner.";
@@ -1833,7 +1830,7 @@ async function setServoZero(d, what) {
   const id = state.selected, cur = servoZeroDeg(id);
   if (Math.abs(wrap360(d - cur + 180) - 180) < 0.05) return log(`Servo ${id}'s 0° is already at ${cur}°.`);
   const shift = Math.round(wrap360(d - cur) * 10) / 10;
-  if (!await ask(`Put servo ${id}'s 0° at ${what}?\n\nWhat the servo itself reports shifts by ${shift}° (saved on the servo). This console keeps measuring from the encoder, so its angles and the arm stay the same.` +
+  if (!await ask(`Put servo ${id}'s 0° at ${what}?\n\nEvery angle shifts by ${shift}° (saved on the servo, so every app sees it). The arm stays where it is.` +
     (zeroOf(id) ? `\n\nThe virtual 0° (${zeroOf(id)}°) is cleared, since the servo's zero replaces it.` : ""), "Set")) return;
   if (await cmd("zeroAt", { degrees: d })) loadConfig(true);
 }
@@ -1882,7 +1879,7 @@ function renderZeroHint() {
   const pos = state.fb[svID]?.position;
   const at = (deg) => Math.round(wrap360(deg - z) * 10) / 10;
   let t = z ? `Straight up (0° physical) will read ${at(0)}°; ${z}° physical will read 0°.` : "No offset: angles are shown as the servo reports them.";
-  if (pos !== undefined) t += ` The current position will read ${at(pos * DEG + calibSteps(svID) * DEG)}°.`;
+  if (pos !== undefined) t += ` The current position will read ${at(pos * DEG)}°.`;
   $("svZeroHint").textContent = t;
 }
 $("svZero").addEventListener("input", renderZeroHint);
@@ -1896,7 +1893,7 @@ $("svZeroClear").onclick = () => { $("svZero").value = 0; renderZeroHint(); };
 $("svDialUpHere").onclick = () => {
   const f = state.fb[svID];
   if (!f || f.error) return;
-  $("svDialUp").value = (Math.round(wrap360(rawSteps(svID, f.position) * DEG) * 10) / 10).toString();
+  $("svDialUp").value = (Math.round(wrap360(f.position * DEG) * 10) / 10).toString();
 };
 $("svDialUpClear").onclick = () => { $("svDialUp").value = 0; };
 $("svColor").addEventListener("input", () => ($("svColor").dataset.custom = "1"));

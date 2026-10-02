@@ -772,19 +772,11 @@ func (s *server) computedMove(req request) (int, error) {
 			}
 			goal = cur + req.Position
 		} else {
-			// req.Degrees is the angle as this console shows it: measured from
-			// the encoder, minus the virtual 0°. Convert with the offset read
-			// fresh from the servo, so a page with stale settings can't send
-			// the arm to the wrong place.
-			off, err := lead.Read(st3215.RegPositionOffset)
-			if err != nil {
-				return err
-			}
-			if bus.Mirrored(ids[0]) {
-				off = -off
-			}
-			raw := int(math.Round((req.Degrees + s.cfg.get(ids[0]).Zero) / st3215.DegreesPerStep))
-			pos := ((raw-off)%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
+			// req.Degrees is the angle as this console shows it: the servo's
+			// reading minus the virtual 0°. Converted here, so a page with
+			// stale settings can't send the arm to the wrong place.
+			reading := int(math.Round((req.Degrees + s.cfg.get(ids[0]).Zero) / st3215.DegreesPerStep))
+			pos := (reading%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev
 			if goal, err = lead.ShortestGoal(pos, turnWindow[0], turnWindow[1]); err != nil {
 				return err
 			}
