@@ -166,7 +166,7 @@ func (s *server) broadcast(msg any) {
 func (s *server) stateMsg() stateMsg {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	mirrored, names, colors := []int{}, map[string]string{}, map[string]string{}
+	mirrored, names, colors, zeros := []int{}, map[string]string{}, map[string]string{}, map[string]float64{}
 	for id, sc := range s.cfg.all() {
 		if sc.Mirrored {
 			mirrored = append(mirrored, int(id))
@@ -177,11 +177,14 @@ func (s *server) stateMsg() stateMsg {
 		if sc.Color != "" {
 			colors[strconv.Itoa(int(id))] = sc.Color
 		}
+		if sc.Zero != 0 {
+			zeros[strconv.Itoa(int(id))] = sc.Zero
+		}
 	}
 	slices.Sort(mirrored)
 	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
 		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids), Mirrored: mirrored, Names: names,
-		Colors: colors, Groups: groupInfos(s.cfg.allGroups())}
+		Colors: colors, Zeros: zeros, Groups: groupInfos(s.cfg.allGroups())}
 }
 
 func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
@@ -449,17 +452,18 @@ func toState(f st3215.Feedback, err error) servoState {
 // Messages
 
 type stateMsg struct {
-	Type      string            `json:"type"`
-	Connected bool              `json:"connected"`
-	Port      string            `json:"port"`
-	Baud      int               `json:"baud"`
-	Scanning  bool              `json:"scanning"`
-	Scanned   bool              `json:"scanned"`
-	IDs       []int             `json:"ids"` // not []uint8: encoding/json would emit base64
-	Mirrored  []int             `json:"mirrored"`
-	Names     map[string]string `json:"names"`  // servo ID -> name from config.toml
-	Colors    map[string]string `json:"colors"` // servo ID -> color override from config.toml
-	Groups    []groupInfo       `json:"groups"`
+	Type      string             `json:"type"`
+	Connected bool               `json:"connected"`
+	Port      string             `json:"port"`
+	Baud      int                `json:"baud"`
+	Scanning  bool               `json:"scanning"`
+	Scanned   bool               `json:"scanned"`
+	IDs       []int              `json:"ids"` // not []uint8: encoding/json would emit base64
+	Mirrored  []int              `json:"mirrored"`
+	Names     map[string]string  `json:"names"`  // servo ID -> name from config.toml
+	Colors    map[string]string  `json:"colors"` // servo ID -> color override from config.toml
+	Zeros     map[string]float64 `json:"zeros"`  // servo ID -> virtual 0° in degrees
+	Groups    []groupInfo        `json:"groups"`
 }
 
 type portsMsg struct {
@@ -545,7 +549,8 @@ type request struct {
 	Name     string     `json:"name"`   // for "rename"
 	Values   []regValue `json:"values"` // for "tune"
 	Save     bool       `json:"save"`   // for "tune"/"copyTuning": persist instead of until power-off
-	Color    string     `json:"color"`  // for "color"
+	Color    string     `json:"color"`  // for "color" and "servoEdit"
+	Zero     float64    `json:"zero"`   // for "servoEdit": virtual 0° in degrees
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -681,6 +686,8 @@ func changeNote(req request) string {
 		return fmt.Sprintf("tuning changed (%d value(s), %s)", len(req.Values), how)
 	case "mirror":
 		return fmt.Sprintf("mirrored %s", onOff(req.On))
+	case "servoEdit":
+		return "settings edited"
 	case "step":
 		return fmt.Sprintf("step %d", req.Position)
 	case "align":
@@ -702,7 +709,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -962,6 +969,26 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if err != nil {
 			return fmt.Errorf("mirrored is active but not saved: %w", err)
 		}
+		return nil
+	case "servoEdit": // the Edit servo dialog: name, color, mirrored and virtual zero at once
+		name, err := validName(req.Name)
+		if err != nil {
+			return err
+		}
+		color, err := validColor(req.Color)
+		if err != nil {
+			return err
+		}
+		if req.Zero < 0 || req.Zero >= 360 {
+			return fmt.Errorf("virtual zero must be between 0 and 360 degrees")
+		}
+		bus.SetMirrored(req.ID, req.On)
+		if err := s.cfg.update(req.ID, func(c *servoConfig) {
+			c.Name, c.Color, c.Mirrored, c.Zero = name, color, req.On, req.Zero
+		}); err != nil {
+			return err
+		}
+		s.broadcastState()
 		return nil
 	case "rename":
 		name, err := validName(req.Name)

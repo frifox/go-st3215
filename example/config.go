@@ -19,9 +19,10 @@ import (
 // servoConfig holds the per-servo settings kept in config.toml. They live in
 // the demo, not on the servo (which has no room for user data).
 type servoConfig struct {
-	Name     string `toml:"Name,omitempty"`
-	Mirrored bool   `toml:"Mirrored,omitempty"`
-	Color    string `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
+	Name     string  `toml:"Name,omitempty"`
+	Mirrored bool    `toml:"Mirrored,omitempty"`
+	Color    string  `toml:"Color,omitempty"` // "#rrggbb"; empty = palette color by ID
+	Zero     float64 `toml:"Zero,omitzero"`   // virtual 0° (degrees, 0..360): shown angle = physical - Zero
 }
 
 func (c servoConfig) empty() bool { return c == servoConfig{} }

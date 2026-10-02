@@ -144,7 +144,7 @@ default 50 ms), `-nosync` (poll servos one by one if SYNC READ misbehaves) and `
 
 Per-servo settings that can't be stored on the servo are kept in
 [`example/config.toml`](example/config.toml), keyed by servo ID. The web UI writes it when you
-rename a servo, toggle Mirrored or change an ID. Edits made by hand are read on startup:
+edit a servo (pencil next to its name: name, color, mirrored, virtual 0°) or change an ID. Edits made by hand are read on startup:
 
 ```toml
 [1]
@@ -153,6 +153,7 @@ Name = "Left"
 [2]
 Name = "Right"
 Mirrored = true
+Zero = 270.0   # virtual 0°: physical 270° is shown as 0°, straight up as 90°
 ```
 
 **Groups** (sidebar → New group) drive their members together from one console: one needle and

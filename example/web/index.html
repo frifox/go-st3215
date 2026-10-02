@@ -332,7 +332,7 @@ td .num { width: 90px; padding: 3px 6px; }
         <span id="selTitle" class="sel-title">Servo –</span>
         <span id="groupChips" class="member-chips" hidden></span>
         <input type="text" id="nameEdit" class="name-edit" maxlength="40" placeholder="Name, e.g. Left" hidden>
-        <button class="icon-btn" id="editNameBtn" title="Rename (saved to config.toml)" aria-label="Rename servo">
+        <button class="icon-btn" id="editNameBtn" title="Edit servo: name, color, mirrored, virtual 0°" aria-label="Edit servo">
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.1 1.9a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
         </button>
         <button class="icon-btn" id="editGroupBtn" title="Edit group" aria-label="Edit group" hidden>
@@ -598,6 +598,43 @@ td .num { width: 90px; padding: 3px 6px; }
   </div>
 </div>
 
+<div class="modal-backdrop" id="servoModal" hidden>
+  <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="svTitle">
+    <h2 id="svTitle">Edit servo</h2>
+    <div class="card-body">
+      <div class="row" style="margin-top:0">
+        <span style="width:90px">Name</span>
+        <input type="text" id="svName" class="num" maxlength="40" placeholder="optional, e.g. Left" style="flex:1;font-family:inherit">
+      </div>
+      <div class="row">
+        <span style="width:90px">Color</span>
+        <input type="color" id="svColor" class="swatch" style="width:22px;height:22px">
+        <button class="btn small" id="svColorReset" title="Back to the palette color for this ID">Default</button>
+      </div>
+      <div class="row">
+        <span style="width:90px">Mirrored</span>
+        <label class="switch"><input type="checkbox" id="svMirrored"><span class="track"></span><span class="hint">reverse direction (servo faces its partner)</span></label>
+      </div>
+      <hr class="sep">
+      <div class="row" style="margin-top:0">
+        <span style="width:90px">Virtual 0°</span>
+        <input type="number" id="svZero" class="num" min="0" max="359.9" step="0.1" style="width:90px">
+        <span class="hint">°</span>
+        <button class="btn small" id="svZeroHere" title="Make the current position read 0°">Current position</button>
+        <button class="btn small" id="svZeroClear">Reset</button>
+      </div>
+      <p class="hint" id="svZeroHint"></p>
+      <p class="hint">Only the degrees shown in this console change (dial labels, readouts, the Target ° field). Steps and everything stored on the servo stay as they are. Saved in config.toml.</p>
+      <div class="err" id="svErr"></div>
+      <div class="row" style="margin-top:16px">
+        <span class="spacer"></span>
+        <button class="btn" id="svCancel">Cancel</button>
+        <button class="btn primary" id="svSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="groupModal" hidden>
   <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle">
     <h2 id="groupModalTitle">New group</h2>
@@ -666,6 +703,24 @@ function send(type, payload = {}) {
 // rows): the palette color for its ID unless config.toml sets Color.
 const PALETTE = ["#4e79a7", "#f28e2b", "#59a14f", "#e15759", "#76b7b2", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#86bcb6"];
 function colorOf(id) { return (state.colors || {})[id] || PALETTE[(((id - 1) % PALETTE.length) + PALETTE.length) % PALETTE.length]; }
+// Virtual zero: shown angle = physical angle - zero (config.toml "Zero").
+// Steps, the dial geometry and anything stored on the servo stay physical.
+function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
+function multiTurnOf(id) { const c = state.cfg[id]; return !!c && c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
+function wrap360(d) { return ((d % 360) + 360) % 360; }
+// vdeg: steps -> shown degrees for servo id.
+function vdeg(id, steps) {
+  const d = steps * DEG - zeroOf(id);
+  return multiTurnOf(id) ? d : wrap360(d);
+}
+// stepsFromVdeg: shown degrees -> steps for servo id.
+function stepsFromVdeg(id, d) {
+  let raw = d + zeroOf(id);
+  if (!multiTurnOf(id)) raw = wrap360(raw);
+  return Math.round(raw / DEG);
+}
+const fmtDeg = (d) => `${d.toFixed(1)}°`;
+
 function groupOf(id) { return (state.groups || []).find((g) => g.members.includes(id)); }
 function curGroup() { return state.selGroup ? (state.groups || []).find((g) => g.key === state.selGroup) || null : null; }
 // members lists the servos shown in the console: the group's, or the selected one.
@@ -814,7 +869,7 @@ function updateListItem(id, f) {
   const dot = el.querySelector(".dot");
   dot.className = "dot " + (f.error ? "bad" : f.status ? "warn" : "ok");
   el.querySelector(".row2").textContent = f.error ? "no reply"
-    : `${(f.position * DEG).toFixed(1)}° · ${f.voltage.toFixed(1)}V · ${f.temperature}°C`;
+    : `${fmtDeg(vdeg(id, f.position))} · ${f.voltage.toFixed(1)}V · ${f.temperature}°C`;
 }
 
 function selectGroup(key) {
@@ -905,8 +960,9 @@ function renderSelected() {
     $("chips").innerHTML = `<span class="chip on">no reply</span>`;
     return;
   }
-  const deg = f.position * DEG;
-  $("tPos").innerHTML = `${f.position} <small>${deg.toFixed(1)}°</small>`;
+  const deg = f.position * DEG; // physical, for the needle
+  const shown = vdeg(state.selected, f.position);
+  $("tPos").innerHTML = `${f.position} <small>${fmtDeg(shown)}</small>`;
   $("tSpeed").innerHTML = `${f.speed} <small>${(f.speed * 60 / STEPS).toFixed(1)} rpm</small>`;
   $("tLoad").innerHTML = `${f.load.toFixed(1)} <small>%</small>`;
   $("tCurrent").innerHTML = `${f.current.toFixed(0)} <small>mA</small>`;
@@ -920,7 +976,7 @@ function renderSelected() {
   $("chips").innerHTML = chips;
 
   setNeedle(state.selected, deg);
-  $("dialDeg").textContent = `${deg.toFixed(1)}°`;
+  $("dialDeg").textContent = fmtDeg(shown);
   $("dialSteps").textContent = `${f.position} steps`;
 }
 
@@ -933,13 +989,13 @@ function renderGroup() {
     if (!f || f.error) return `<tr><td>${label}</td><td class="bad" colspan="6">no reply</td></tr>`;
     setNeedle(id, f.position * DEG);
     const st = f.status ? `<td class="bad" title="${f.statusText}">fault</td>` : `<td>${f.moving ? "moving" : "ok"}</td>`;
-    return `<tr><td>${label}</td><td title="${f.position} steps">${(f.position * DEG).toFixed(1)}°</td><td>${f.speed}</td>` +
+    return `<tr><td>${label}</td><td title="${f.position} steps">${fmtDeg(vdeg(id, f.position))}</td><td>${f.speed}</td>` +
       `<td>${f.load.toFixed(1)}%</td><td>${f.current.toFixed(0)}</td><td title="${f.voltage.toFixed(1)} V">${f.temperature}</td>${st}</tr>`;
   });
   $("memberRows").innerHTML = rows.join("");
 
   const lead = state.fb[g.members[0]], h = state.health?.[g.key];
-  $("dialDeg").textContent = lead && !lead.error ? `${(lead.position * DEG).toFixed(1)}°` : "–";
+  $("dialDeg").textContent = lead && !lead.error ? fmtDeg(vdeg(g.members[0], lead.position)) : "–";
   $("dialSteps").textContent = h ? `spread ${h.spread} st` : "–";
   renderHealth(g, h);
 }
@@ -970,20 +1026,29 @@ function renderHealthSettings() {
 const C = 120, R = 92;
 function polar(deg, r) { const a = (deg - 90) * Math.PI / 180; return [C + r * Math.cos(a), C + r * Math.sin(a)]; }
 
-(function buildTicks() {
-  const g = $("ticks");
+// Ticks sit at physical angles; labels show the shown (virtual) degrees.
+let ticksZero = null;
+function buildTicks(zero = 0) {
+  if (zero === ticksZero) return;
+  ticksZero = zero;
   let s = "";
   for (let d = 0; d < 360; d += 10) {
     const major = d % 90 === 0, mid = d % 30 === 0;
     const [x1, y1] = polar(d, R + 10), [x2, y2] = polar(d, R + 10 - (major ? 12 : mid ? 8 : 4));
     s += `<line class="tick" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${major ? 2 : 1}"/>`;
-    if (mid) { const [lx, ly] = polar(d, R - 14); s += `<text class="lbl" x="${lx}" y="${ly}">${d}</text>`; }
+    if (mid) {
+      const [lx, ly] = polar(d, R - 14);
+      const v = Math.round(wrap360(d - zero) * 10) / 10;
+      s += `<text class="lbl" x="${lx}" y="${ly}">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
+    }
   }
-  g.innerHTML = s;
-})();
+  $("ticks").innerHTML = s;
+}
+buildTicks(0);
 
 // One needle per shown servo, in that servo's color.
 function buildNeedles() {
+  buildTicks(state.selected === null ? 0 : zeroOf(members()[0] ?? state.selected));
   $("needles").innerHTML = members().map((id) =>
     `<line class="needle" data-id="${id}" x1="120" y1="120" x2="120" y2="120" style="stroke:${colorOf(id)}"/>`).join("");
 }
@@ -1170,7 +1235,7 @@ function bindPair(name, onChange) {
 function setTarget(steps) {
   steps = Math.max(Number($("target").min), Math.min(Number($("target").max), steps));
   setPair("target", steps);
-  $("targetDegNum").value = (steps * DEG).toFixed(1);
+  $("targetDegNum").value = vdeg(state.selected, steps).toFixed(1);
   setGoalMark(steps);
 }
 
@@ -1181,7 +1246,7 @@ bindPair("target", (ev) => {
     followTimer = setTimeout(() => { followTimer = null; move(true); }, 60);
   }
 });
-$("targetDegNum").addEventListener("change", () => setTarget(Math.round(Number($("targetDegNum").value) / DEG)));
+$("targetDegNum").addEventListener("change", () => setTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value))));
 // Enter in either target field moves there right away.
 $("targetNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1190,7 +1255,7 @@ $("targetNum").addEventListener("keydown", (e) => {
 });
 $("targetDegNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  setTarget(Math.round(Number($("targetDegNum").value) / DEG));
+  setTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value)));
   move();
 });
 bindPair("speed");
@@ -1209,7 +1274,7 @@ function motion() { return { speed: Number($("speed").value), acc: Number($("acc
 
 async function move(quiet) {
   const position = Number($("target").value);
-  await ctl("move", { position, ...motion() }, quiet ? null : `move → ${position} (${(position * DEG).toFixed(1)}°)`);
+  await ctl("move", { position, ...motion() }, quiet ? null : `move → ${position} (${fmtDeg(vdeg(state.selected, position))})`);
 }
 
 $("moveBtn").onclick = () => move();
@@ -1266,7 +1331,7 @@ async function commitNameEdit() {
   if (name === servoName(id)) return;
   await cmd("rename", { name }, name ? `servo ${id} named “${name}”` : `servo ${id} name cleared`);
 }
-$("editNameBtn").onclick = startNameEdit;
+$("editNameBtn").onclick = openServoEdit; // double-clicking the title still renames inline
 $("selTitle").ondblclick = startNameEdit;
 $("nameEdit").addEventListener("keydown", (e) => {
   if (e.key === "Enter") commitNameEdit();
@@ -1469,6 +1534,7 @@ function onState(m) {
   state.mirrored = new Set(m.mirrored || []);
   state.names = m.names || {};
   state.colors = m.colors || {};
+  state.zeros = m.zeros || {};
   state.groups = m.groups || [];
   $("mirrored").checked = state.mirrored.has(state.selected);
   // A group this window just created: open it.
@@ -1482,9 +1548,10 @@ function onState(m) {
     state.pendingGroup = null;
     selectGroup(created.key);
   } else if (state.selected !== null && m.connected) {
-    applyMode(); // refresh in place: needles, member chips, health limits
+    applyMode(); // refresh in place: needles, dial labels, member chips, health limits
     renderNames();
     renderHealthSettings();
+    setTarget(Number($("target").value)); // re-show the target in (possibly new) virtual degrees
   }
   renderView();
 }
@@ -1690,6 +1757,62 @@ $("colorPick").addEventListener("change", (e) => {
   if (state.selGroup || state.selected === null) return;
   cmd("color", { color: e.target.value }, `servo ${state.selected} color ${e.target.value}`);
 });
+
+// ---------------------------------------------------------------- edit servo dialog
+let svID = null;
+function openServoEdit() {
+  if (state.selected === null || state.selGroup) return;
+  svID = state.selected;
+  $("svTitle").textContent = `Edit servo #${svID}`;
+  $("svName").value = servoName(svID);
+  $("svColor").value = colorOf(svID);
+  $("svColor").dataset.custom = (state.colors || {})[svID] ? "1" : "";
+  $("svMirrored").checked = !!state.mirrored?.has(svID);
+  $("svZero").value = zeroOf(svID);
+  $("svErr").textContent = "";
+  renderZeroHint();
+  $("servoModal").hidden = false;
+  $("svName").focus();
+}
+function closeServoEdit() { $("servoModal").hidden = true; svID = null; }
+function renderZeroHint() {
+  const z = Number($("svZero").value) || 0;
+  const pos = state.fb[svID]?.position;
+  const at = (deg) => Math.round(wrap360(deg - z) * 10) / 10;
+  let t = z ? `Straight up (0° physical) will read ${at(0)}°; ${z}° physical will read 0°.` : "No offset: angles are shown as the servo reports them.";
+  if (pos !== undefined) t += ` The current position will read ${at(pos * DEG)}°.`;
+  $("svZeroHint").textContent = t;
+}
+$("svZero").addEventListener("input", renderZeroHint);
+$("svZeroHere").onclick = () => {
+  const pos = state.fb[svID]?.position;
+  if (pos === undefined) return;
+  $("svZero").value = (Math.round(wrap360(pos * DEG) * 10) / 10).toString();
+  renderZeroHint();
+};
+$("svZeroClear").onclick = () => { $("svZero").value = 0; renderZeroHint(); };
+$("svColor").addEventListener("input", () => ($("svColor").dataset.custom = "1"));
+$("svColorReset").onclick = () => {
+  $("svColor").dataset.custom = "";
+  $("svColor").value = PALETTE[(((svID - 1) % PALETTE.length) + PALETTE.length) % PALETTE.length];
+};
+$("svCancel").onclick = closeServoEdit;
+$("servoModal").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeServoEdit();
+  if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.type !== "checkbox") $("svSave").click();
+});
+$("svSave").onclick = async () => {
+  let zero = Number($("svZero").value) || 0;
+  if (zero < 0 || zero >= 360) { $("svErr").textContent = "Virtual 0° must be between 0 and 359.9."; return; }
+  zero = Math.round(zero * 10) / 10;
+  const id = svID;
+  try {
+    await send("servoEdit", { id, name: $("svName").value.trim(), color: $("svColor").dataset.custom ? $("svColor").value : "",
+      on: $("svMirrored").checked, zero });
+    log(`servo ${id} settings saved`);
+    closeServoEdit();
+  } catch (e) { $("svErr").textContent = e.message; }
+};
 
 // ---------------------------------------------------------------- auto-tune
 // The server runs one auto-tune at a time and streams it to every window;
