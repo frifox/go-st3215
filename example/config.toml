@@ -6,3 +6,4 @@ Mirrored = true
 Signed = true
 Zero = 180.0
 DialUp = 270.0
+Range = [1884, 3932]

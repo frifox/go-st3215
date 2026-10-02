@@ -58,6 +58,7 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; 
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 .card-body { padding: 14px; }
+.lim-row.off { opacity: .45; }
 .card > h2.toggle { cursor: pointer; user-select: none; }
 .card > h2.toggle::before { content: "▾"; font-size: 11px; transition: transform .15s; }
 .card.collapsed > h2.toggle::before { transform: rotate(-90deg); }
@@ -494,7 +495,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <button class="btn" id="zeroAtBtn">Set</button>
         </div>
         <hr class="sep">
-        <div class="row">
+        <div class="row lim-row">
           <span>Limit motion range to</span>
           <input class="num" type="number" id="limMin" step="0.1" style="width:80px">
           <span>° to</span>
@@ -503,7 +504,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <button class="btn" id="limSet">Set</button>
           <button class="btn" id="limClear" title="Remove the motion range">Clear</button>
         </div>
-        <div class="row">
+        <div class="row lim-row">
           <span>Set current position as</span>
           <button class="btn small" id="limMinHere">Min</button>
           <button class="btn small" id="limMaxHere">Max</button>
@@ -2007,6 +2008,12 @@ function limitsOf(id) {
 function renderLimits() {
   const id = state.selected;
   if (id === null || state.selGroup) return;
+  // Multi-turn: the servo has no limits, so the range fields are grayed out.
+  const off = multiTurnOf(id);
+  document.querySelectorAll(".lim-row").forEach((row) => {
+    row.classList.toggle("off", off);
+    row.querySelectorAll("input, button").forEach((el) => (el.disabled = off));
+  });
   const lim = limitsOf(id), editing = [$("limMin"), $("limMax")].includes(document.activeElement);
   if (!editing && !$("limMin").dataset.pending) {
     $("limMin").value = lim ? rnd1(vdeg(id, lim[0])) : "";
