@@ -460,7 +460,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <span>or</span>
           <button class="btn" id="zeroAtHere" title="Make where the arm is now the servo's 0°">Current position</button>
           <span class="spacer"></span>
-          <button class="btn small" id="zeroResetBtn" title="Position offset back to 0: readings are the raw encoder angle again">Factory zero</button>
+          <button class="btn small" id="zeroResetBtn" title="Position offset to 0: readings become the raw encoder angle (not the factory calibration; Factory reset restores that)">Clear offset</button>
         </div>
         <p class="hint" id="posAsHint">Writes the servo's position offset so the current position reads that angle. Saved on the servo.</p>
         <hr class="sep">
@@ -641,7 +641,7 @@ td .num { width: 90px; padding: 3px 6px; }
         <button class="btn small" id="svDialUpHere" title="The arm is pointing straight up right now">Arm is up now</button>
         <button class="btn small" id="svDialUpClear">Reset</button>
       </div>
-      <p class="hint">Dial orientation: where this servo's arm points physically straight up, on the factory scale. The dial is turned so its needle matches the real arm; zeros and readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
+      <p class="hint">Dial orientation: where this servo's arm points physically straight up, on the encoder scale (the reading with no position offset). The dial is turned so its needle matches the real arm; zeros and readings are not affected. Point the arm straight up and press "Arm is up now". Saved in config.toml.</p>
       <div class="err" id="svErr"></div>
       <div class="row" style="margin-top:16px">
         <button class="btn danger" id="svFactory" title="Send the servo's RESET command: all saved settings back to factory">Factory reset</button>
@@ -729,7 +729,7 @@ function zeroOf(id) { return Number((state.zeros || {})[id] || 0); }
 // needle, only the labels, just like the virtual zero.
 function offsetOf(id) { return state.cfg[id]?.positionOffset ?? 0; }
 function rawSteps(id, steps) { return steps + (state.mirrored?.has(id) ? -1 : 1) * offsetOf(id); }
-// Dial orientation: the factory-scale angle at which this servo's arm points
+// Dial orientation: the encoder-scale angle (offset 0) at which this servo's arm points
 // physically up (config.toml "DialUp"), so the needle matches the real arm.
 function dialUpOf(id) { return Number((state.dialUps || {})[id] || 0); }
 // screenDeg: where a position is drawn on the dial (0 = top of the dial).
@@ -1798,7 +1798,7 @@ $("colorPick").addEventListener("change", (e) => {
 });
 
 // ---------------------------------------------------------------- servo-side zero
-// The servo's own zero, as an absolute angle on the factory scale (what the
+// The servo's own zero, as an absolute angle on the encoder scale (what the
 // servo reads with position offset 0, i.e. the dial's raw frame). The field
 // always shows the zero currently saved on the servo.
 function servoZeroDeg(id) { return Math.round(wrap360(rawSteps(id, 0) * DEG) * 10) / 10; }
@@ -1808,16 +1808,17 @@ function renderPosAsHint() {
   if (id === null || state.selGroup) return;
   const z = servoZeroDeg(id);
   if (document.activeElement !== $("zeroAtDeg")) $("zeroAtDeg").value = z;
-  let t = z ? `Saved on the servo: its 0° is at the factory ${z}° mark (position offset ${offsetOf(id)} steps).`
-    : "Saved on the servo: factory zero (no offset).";
-  t += " Set puts the servo's 0° at the angle you enter, measured from the factory zero; Current position puts it where the arm is now. Every app sees the same angles. The arm doesn't move; the dial labels and readouts change.";
+  let t = z ? `Saved on the servo: its 0° is at the encoder's ${z}° mark (position offset ${offsetOf(id)} steps, ${(offsetOf(id) * DEG).toFixed(1)}°).`
+    : "Saved on the servo: no position offset (readings are the raw encoder angle).";
+  t += " After a factory reset the servo has its factory calibration offset, so this is usually not 0 then.";
+  t += " Set puts the servo's 0° at the angle you enter, measured on the encoder scale (no offset); Current position puts it where the arm is now. Every app sees the same angles. The arm doesn't move; the dial labels and readouts change.";
   if (!multiTurnOf(id)) t += " In single-turn mode the 0°/360° point the servo can't cross moves to the new 0°.";
   if (zeroOf(id)) t += ` Setting it replaces the virtual 0° (${zeroOf(id)}°) of this console.`;
   if (state.mirrored?.has(id)) t += " This servo is mirrored: its dial turns the opposite way to its own arm, so it matches its partner.";
   $("posAsHint").textContent = t;
 }
 
-// setServoZero puts servo id's 0° at d° on the factory scale.
+// setServoZero puts servo id's 0° at d° on the encoder scale.
 async function setServoZero(d, what) {
   const id = state.selected, cur = servoZeroDeg(id);
   if (Math.abs(wrap360(d - cur + 180) - 180) < 0.05) return log(`Servo ${id}'s 0° is already at ${cur}°.`);
@@ -1829,13 +1830,13 @@ async function setServoZero(d, what) {
 $("zeroAtBtn").onclick = () => {
   const d = Math.round(Number($("zeroAtDeg").value) * 10) / 10;
   if (!(d >= 0 && d < 360)) return log("Angle must be 0–359.9°", "error");
-  setServoZero(d, `the factory ${d}° mark`);
+  setServoZero(d, `the encoder's ${d}° mark`);
 };
 $("zeroAtHere").onclick = () => {
   const id = state.selected, f = state.fb[id];
   if (!f || f.error) return log("No position reading for this servo.", "error");
-  const d = Math.round(wrap360(rawSteps(id, f.position) * DEG) * 10) / 10; // the arm, on the factory scale
-  setServoZero(d, `the current position (factory ${d}°)`);
+  const d = Math.round(wrap360(rawSteps(id, f.position) * DEG) * 10) / 10; // the arm, on the encoder scale
+  setServoZero(d, `the current position (encoder ${d}°)`);
 };
 $("zeroAtDeg").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("zeroAtBtn").click();
@@ -1843,8 +1844,8 @@ $("zeroAtDeg").addEventListener("keydown", (e) => {
 });
 $("zeroResetBtn").onclick = async () => {
   const id = state.selected, off = offsetOf(id);
-  if (!off) return log(`Servo ${id} already has the factory zero (offset 0).`);
-  if (!await ask(`Reset servo ${id}'s zero to the factory zero (offset ${off} steps → 0)?\n\nReadings become the raw encoder angle. The arm stays where it is.`, "Reset")) return;
+  if (!off) return log(`Servo ${id} has no position offset already.`);
+  if (!await ask(`Clear servo ${id}'s position offset (${off} steps → 0)?\n\nReadings become the raw encoder angle. This is not the factory calibration (Factory reset restores that). The arm stays where it is.`, "Clear")) return;
   if (await cmd("zeroReset", {})) loadConfig(true);
 };
 
@@ -1899,7 +1900,7 @@ $("svFactory").onclick = async () => {
   const others = state.ids.filter((x) => x !== id);
   closeServoEdit(); // only the confirmation is shown
   if (!await ask(`Factory reset servo ${id}?\n\n` +
-    "All settings saved on the servo go back to factory defaults: zero (position offset), angle limits (multi-turn off), mode, tuning, protection limits, and most likely the ID (to 1) and baud rate (to 1 Mbps).\n\n" +
+    "All settings saved on the servo go back to factory defaults: zero (the factory calibration offset), angle limits (multi-turn off), mode, tuning, protection limits, and most likely the ID (to 1) and baud rate (to 1 Mbps).\n\n" +
     "Torque is switched off first, so the arm will go limp: support it if it can fall." +
     (id !== 1 && others.includes(1) ? "\n\nServo 1 is also connected: if this servo becomes ID 1, the two can't be told apart until you disconnect one and change its ID." : "") +
     "\n\nName, color, mirrored and groups in config.toml are kept.", "Factory reset")) {

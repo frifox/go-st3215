@@ -503,9 +503,9 @@ func (s *Servo) SetZeroAt(at int) error {
 	return s.shiftOffset(shift)
 }
 
-// SetZero puts the servo's 0° at `at` (steps) measured on the factory scale,
+// SetZero puts the servo's 0° at `at` (steps) measured on the encoder scale,
 // i.e. what the position reads with PositionOffset 0. Unlike SetZeroAt it is
-// absolute: SetZero(3072) always means "the factory 270° mark is 0°", however
+// absolute: SetZero(3072) always means "the encoder's 270° mark is 0°", however
 // often it is applied, and Zero reports it back. SetZero(0) is ResetZero.
 func (s *Servo) SetZero(at int) error {
 	off, err := s.Read(RegPositionOffset)
@@ -519,8 +519,8 @@ func (s *Servo) SetZero(at int) error {
 	return s.shiftOffset(CircularDiff(want, off))
 }
 
-// Zero returns where the servo's 0° is on the factory scale (steps, 0..4095),
-// the value SetZero takes: 0 means the factory zero.
+// Zero returns where the servo's 0° is on the encoder scale (steps, 0..4095),
+// the value SetZero takes: 0 means no offset.
 func (s *Servo) Zero() (int, error) {
 	off, err := s.Read(RegPositionOffset)
 	if err != nil {
@@ -532,8 +532,9 @@ func (s *Servo) Zero() (int, error) {
 	return (off%StepsPerRev + StepsPerRev) % StepsPerRev, nil
 }
 
-// ResetZero sets PositionOffset back to 0 (factory default), so readings are
-// the raw encoder angle again. Like SetZeroAt, a servo holding torque doesn't
+// ResetZero sets PositionOffset to 0, so readings are the raw encoder angle.
+// Note this is not the factory state: a factory reset restores Waveshare's
+// factory calibration offset (e.g. 85 steps), which is servo-specific. Like SetZeroAt, a servo holding torque doesn't
 // move.
 func (s *Servo) ResetZero() error {
 	off, err := s.Read(RegPositionOffset)

@@ -51,7 +51,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Auto-tuning | `autotune.Run(ctx, autotune.ForServo(s) / ForGroup(g), opts)`: finds P, D, start force and dead zone by test moves with the real load |
 | Monitoring | `Feedback` (position, speed, load, voltage, temperature, current, moving, status in one read), plus single getters |
 | Torque | `EnableTorque`, `SetTorqueLimit` (runtime), `SetMaxTorque` (persisted) |
-| Calibration | `SetZero(steps)` / `Zero()` (absolute: the servo's own 0° on the factory scale, e.g. 3072 = 270°), `SetZeroAt(steps)` (relative: the mark that reads `steps` now becomes 0°), `SetPositionAs(pos)` (current position reads `pos`), `ResetZero()` (offset 0, factory), `CalibrateMiddle` (= 2048), `SetPositionOffset`. A servo holding torque doesn't move; with torque off the goal is left alone |
+| Calibration | `SetZero(steps)` / `Zero()` (absolute: the servo's own 0° on the encoder scale, e.g. 3072 = 270°), `SetZeroAt(steps)` (relative: the mark that reads `steps` now becomes 0°), `SetPositionAs(pos)` (current position reads `pos`), `ResetZero()` (offset 0, raw encoder angle; a factory reset instead restores the servo's factory calibration offset), `CalibrateMiddle` (= 2048), `SetPositionOffset`. A servo holding torque doesn't move; with torque off the goal is left alone |
 | Configuration | `SetID`, `SetBaudRate`, `SetAngleLimits`, `SetVoltageLimits`, `SetMaxTemperature`, `SetProtection`, `SetPID`, `SetDeadZone`, `ReadConfig` |
 | Raw access | `Servo.Read(reg)` / `Servo.Write(reg, v)` for every register in `Registers`; `Bus.Read/Write/SyncRead/SyncWrite` |
 | Tuning trials | `Servo.WriteTemporary(reg, v)` applies EEPROM settings (PID, dead zone, protection...) until power-off without saving them |
@@ -156,7 +156,7 @@ Name = "Left"
 Name = "Right"
 Mirrored = true
 Zero = 270.0   # virtual 0°: physical 270° is shown as 0°, straight up as 90°
-DialUp = 340.0 # dial orientation: the arm points physically up at factory 340°
+DialUp = 340.0 # dial orientation: the arm points physically up at encoder 340°
 ```
 
 **Groups** (sidebar → New group) drive their members together from one console: one needle and

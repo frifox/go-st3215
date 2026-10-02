@@ -558,7 +558,7 @@ type request struct {
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
 	DialUp   float64    `json:"dialUp"`  // for "servoEdit": factory-scale angle that is physically up
-	Degrees  float64    `json:"degrees"` // for "zeroAt": where 0° goes, in degrees on the factory scale
+	Degrees  float64    `json:"degrees"` // for "zeroAt": where 0° goes, in degrees on the encoder scale (offset 0)
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -1142,10 +1142,10 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		if err := sv.ResetZero(); err != nil {
 			return err
 		}
-		s.logf("info", "servo %d: position offset reset to 0 (factory zero)", req.ID)
+		s.logf("info", "servo %d: position offset cleared (0, raw encoder angle)", req.ID)
 		return nil
 	case "zeroAt":
-		// Absolute: where the servo's 0° goes on the factory scale. The servo's
+		// Absolute: where the servo's 0° goes on the encoder scale. The servo's
 		// own zero replaces a virtual one, so that is cleared.
 		vz := s.cfg.get(req.ID).Zero
 		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
@@ -1159,7 +1159,7 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			}
 			s.broadcastState()
 		}
-		s.logf("info", "servo %d: 0° is now at %.1f° on the factory scale (offset saved on the servo)", req.ID, d)
+		s.logf("info", "servo %d: 0° is now at the encoder's %.1f° mark (offset saved on the servo)", req.ID, d)
 		return nil
 	case "setid":
 		if slices.Contains(s.servoIDs(), req.NewID) {
