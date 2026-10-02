@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST3215 Console</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f8f9fb; --border: #e2e5ea;
+  --text: #1c2330; --muted: #6b7484; --accent: #2f6fed; --accent-weak: #2f6fed1f;
+  --ok: #1f9d55; --warn: #c27c0e; --bad: #d64545; --goal: #c27c0e;
+  --grid: #e9ecf1; --shadow: 0 1px 2px rgba(16,24,40,.06);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218; --panel: #171b23; --panel-2: #1d222c; --border: #2a303c;
+    --text: #e6e9ef; --muted: #8b93a3; --accent: #5b8cff; --accent-weak: #5b8cff26;
+    --ok: #3ccf7a; --warn: #f0a742; --bad: #ff6b6b; --goal: #f0a742;
+    --grid: #232935; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+button, input, select { font: inherit; color: inherit; }
+header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 5;
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+.spacer { flex: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px;
+  border-radius: 999px; font-size: 12px; background: var(--panel-2); border: 1px solid var(--border);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+.btn {
+  border: 1px solid var(--border); background: var(--panel-2); padding: 6px 12px;
+  border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: default; }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; } }
+@media (max-width: 520px) { header h1 { font-size: 14px; } #rate { display: none; } .field { grid-template-columns: 90px minmax(0, 1fr) 72px; } }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+.card > h2 {
+  margin: 0; padding: 10px 14px; font-size: 12px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--muted); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.card-body { padding: 14px; }
+/* servo list */
+.servo-list { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 860px) { .servo-list { flex-direction: row; overflow-x: auto; } }
+.servo-item {
+  text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel); cursor: pointer; min-width: 170px;
+}
+.servo-item.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+.servo-item .row1 { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.servo-item .row2 { color: var(--muted); font-size: 12px; font-family: var(--mono); margin-top: 2px; }
+.empty { color: var(--muted); padding: 24px; text-align: center; }
+/* main grid */
+.main { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-content: start; }
+.span2 { grid-column: span 2; }
+@media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } .span2 { grid-column: auto; } }
+/* dial + telemetry */
+.overview { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: center; }
+@media (max-width: 560px) { .overview { grid-template-columns: minmax(0, 1fr); justify-items: center; } }
+#dial { width: 240px; height: 240px; cursor: crosshair; user-select: none; }
+#dial .face { fill: var(--panel-2); stroke: var(--border); }
+#dial .tick { stroke: var(--muted); }
+#dial .lbl { fill: var(--muted); font-size: 10px; text-anchor: middle; dominant-baseline: middle; }
+#dial .limit { fill: none; stroke: var(--accent-weak); stroke-width: 10; }
+#dial .needle { stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
+#dial .hub { fill: var(--accent); }
+#dial .goal { fill: var(--goal); }
+#dial .plate { fill: var(--panel); stroke: var(--border); }
+#dial .readout { fill: var(--text); font: 600 18px var(--mono); text-anchor: middle; }
+#dial .sub { fill: var(--muted); font: 11px var(--mono); text-anchor: middle; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; width: 100%; }
+.tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.tile .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.tile .v { font: 600 18px var(--mono); margin-top: 2px; white-space: nowrap; }
+.tile .v small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.chip.on { color: #fff; background: var(--bad); border-color: var(--bad); }
+.chip.okc { color: var(--ok); border-color: var(--ok); }
+/* chart */
+.tabs { display: inline-flex; max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-left: auto; }
+.tabs button { border: 0; background: transparent; padding: 3px 10px; cursor: pointer; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.tabs button.active { background: var(--accent); color: #fff; }
+#chart { width: 100%; height: 200px; display: block; }
+/* controls */
+.field { display: grid; grid-template-columns: 110px 1fr 90px; gap: 10px; align-items: center; margin-bottom: 10px; }
+.field label { color: var(--muted); font-size: 13px; }
+.field input[type=number], .num { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-family: var(--mono); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; padding: 6px 12px; background: var(--panel-2); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.active { background: var(--accent); color: #fff; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { display: none; }
+.switch .track { width: 38px; height: 22px; border-radius: 999px; background: var(--border); position: relative; transition: background .15s; }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + .track { background: var(--ok); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.mode-panel[hidden] { display: none; }
+.hint { color: var(--muted); font-size: 12px; }
+hr.sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+/* registers */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+td.mono { font-family: var(--mono); }
+td .num { width: 90px; padding: 3px 6px; }
+.badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+.badge.ee { color: var(--warn); border-color: var(--warn); }
+/* log */
+#log { font: 12px var(--mono); max-height: 180px; overflow-y: auto; padding: 8px 14px; }
+#log div { padding: 2px 0; border-bottom: 1px dashed var(--grid); }
+#log .error { color: var(--bad); }
+#log time { color: var(--muted); margin-right: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ST3215 Console</h1>
+  <span class="pill"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
+  <span class="pill" id="rate">– Hz</span>
+  <span class="spacer"></span>
+  <button class="btn" id="scanBtn">Scan bus</button>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="servo-list" id="servoList"><div class="empty">No servos yet</div></div>
+  </aside>
+
+  <main class="main" id="main" hidden>
+    <section class="card span2">
+      <h2>Servo <span id="selId">–</span> <span class="spacer"></span><span id="selInfo" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+      <div class="card-body overview">
+        <svg id="dial" viewBox="0 0 240 240" aria-label="Position dial">
+          <circle class="face" cx="120" cy="120" r="108"/>
+          <path class="limit" id="limitArc"/>
+          <g id="ticks"></g>
+          <circle class="goal" id="goalMark" r="6"/>
+          <line class="needle" id="needle" x1="120" y1="120" x2="120" y2="30"/>
+          <circle class="hub" cx="120" cy="120" r="7"/>
+          <rect class="plate" x="72" y="142" width="96" height="44" rx="8"/>
+          <text class="readout" x="120" y="160" id="dialDeg">–</text>
+          <text class="sub" x="120" y="178" id="dialSteps">–</text>
+        </svg>
+        <div>
+          <div class="tiles">
+            <div class="tile"><div class="k">Position</div><div class="v" id="tPos">–</div></div>
+            <div class="tile"><div class="k">Speed</div><div class="v" id="tSpeed">–</div></div>
+            <div class="tile"><div class="k">Load</div><div class="v" id="tLoad">–</div></div>
+            <div class="tile"><div class="k">Current</div><div class="v" id="tCurrent">–</div></div>
+            <div class="tile"><div class="k">Voltage</div><div class="v" id="tVolt">–</div></div>
+            <div class="tile"><div class="k">Temperature</div><div class="v" id="tTemp">–</div></div>
+          </div>
+          <div class="chips" id="chips"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card span2">
+      <h2>History (30 s)
+        <div class="tabs" id="chartTabs">
+          <button data-k="position" class="active">Position</button>
+          <button data-k="speed">Speed</button>
+          <button data-k="load">Load</button>
+          <button data-k="current">Current</button>
+          <button data-k="temperature">Temp</button>
+        </div>
+      </h2>
+      <div class="card-body"><canvas id="chart"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Control</h2>
+      <div class="card-body">
+        <div class="row" style="margin-top:0">
+          <label class="switch"><input type="checkbox" id="torque"><span class="track"></span><span>Torque</span></label>
+          <span class="spacer"></span>
+          <div class="seg" id="modeSeg">
+            <button data-mode="0">Position</button>
+            <button data-mode="1">Wheel</button>
+            <button data-mode="2">PWM</button>
+            <button data-mode="3">Step</button>
+          </div>
+        </div>
+        <hr class="sep">
+
+        <div class="mode-panel" data-panel="0">
+          <div class="field"><label>Target</label><input type="range" id="target" min="0" max="4095" value="2048"><input class="num" type="number" id="targetNum" value="2048"></div>
+          <div class="field"><label>Target (°)</label><span></span><input class="num" type="number" id="targetDegNum" step="0.1" value="180"></div>
+          <div class="row">
+            <button class="btn primary" id="moveBtn">Move</button>
+            <button class="btn" id="stopBtn">Stop</button>
+            <button class="btn" data-jog="-90">−90°</button>
+            <button class="btn" data-jog="-10">−10°</button>
+            <button class="btn" data-jog="10">+10°</button>
+            <button class="btn" data-jog="90">+90°</button>
+            <button class="btn" id="centerBtn">Center</button>
+          </div>
+          <div class="row">
+            <label class="switch"><input type="checkbox" id="follow"><span class="track"></span><span>Move while dragging</span></label>
+          </div>
+          <p class="hint">Click the dial to move there. Range follows the angle limits (±30719 in multi-turn).</p>
+        </div>
+
+        <div class="mode-panel" data-panel="1" hidden>
+          <div class="field"><label>Wheel speed</label><input type="range" id="wheel" min="-3400" max="3400" value="0"><input class="num" type="number" id="wheelNum" value="0"></div>
+          <div class="row"><button class="btn primary" id="wheelBtn">Apply</button><button class="btn" id="wheelStop">Stop</button></div>
+        </div>
+
+        <div class="mode-panel" data-panel="2" hidden>
+          <div class="field"><label>PWM duty</label><input type="range" id="pwm" min="-1000" max="1000" value="0"><input class="num" type="number" id="pwmNum" value="0"></div>
+          <div class="row"><button class="btn primary" id="pwmBtn">Apply</button><button class="btn" id="pwmStop">Stop</button></div>
+          <p class="hint">Open loop, 0.1% units. Direction bit is unverified on hardware.</p>
+        </div>
+
+        <div class="mode-panel" data-panel="3" hidden>
+          <div class="field"><label>Relative steps</label><input type="range" id="stepRel" min="-4096" max="4096" value="1024"><input class="num" type="number" id="stepRelNum" value="1024"></div>
+          <div class="row"><button class="btn primary" id="stepBtn">Step</button></div>
+        </div>
+
+        <hr class="sep">
+        <div class="field"><label>Speed</label><input type="range" id="speed" min="0" max="3400" value="1000"><input class="num" type="number" id="speedNum" value="1000"></div>
+        <div class="field"><label>Acceleration</label><input type="range" id="acc" min="0" max="254" value="50"><input class="num" type="number" id="accNum" value="50"></div>
+        <div class="field"><label>Torque limit %</label><input type="range" id="tlimit" min="0" max="100" value="100"><input class="num" type="number" id="tlimitNum" value="100"></div>
+        <p class="hint">Speed in step/s (0 = max, 3400 ≈ 50 rpm). Acceleration in 100 step/s² (0 = max).</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Setup</h2>
+      <div class="card-body">
+        <div class="row" style="margin-top:0">
+          <label class="switch"><input type="checkbox" id="multiturn"><span class="track"></span><span>Multi-turn (angle limits 0/0)</span></label>
+        </div>
+        <hr class="sep">
+        <div class="row">
+          <button class="btn" id="calibBtn">Set current position as center</button>
+        </div>
+        <p class="hint">Writes the position offset so the current position reads 2048. Saved in EEPROM.</p>
+        <hr class="sep">
+        <div class="row">
+          <span>Change ID to</span>
+          <input class="num" type="number" id="newId" min="0" max="253" style="width:90px">
+          <button class="btn" id="setIdBtn">Set ID</button>
+        </div>
+        <p class="hint">New servos ship with ID 1. Connect one at a time when changing IDs.</p>
+        <hr class="sep">
+        <div class="row"><button class="btn" id="cfgBtn">Reload registers</button></div>
+      </div>
+    </section>
+
+    <section class="card span2">
+      <h2>Memory table</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Addr</th><th>Register</th><th>Area</th><th>Value</th><th>Unit</th><th>Range</th><th>Write</th></tr></thead>
+          <tbody id="regs"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card span2">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const STEPS = 4096, DEG = 360 / STEPS, HISTORY_MS = 30000;
+const STATUS_BITS = [["voltage", 1], ["sensor", 2], ["temperature", 4], ["current", 8], ["angle", 16], ["overload", 32]];
+
+const state = {
+  ids: [], selected: null, fb: {}, hist: {}, cfg: {}, chartKey: "position",
+  frames: [], seq: 0, pending: new Map(), ws: null,
+};
+
+// ---------------------------------------------------------------- websocket
+function connect() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  state.ws = ws;
+  ws.onopen = () => setConn(true);
+  ws.onclose = () => {
+    setConn(false);
+    for (const p of state.pending.values()) p.reject(new Error("disconnected"));
+    state.pending.clear();
+    setTimeout(connect, 1000);
+  };
+  ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
+}
+
+function setConn(ok) {
+  $("connDot").className = "dot " + (ok ? "ok" : "bad");
+  $("connText").textContent = ok ? "connected" : "disconnected";
+}
+
+function send(type, payload = {}) {
+  return new Promise((resolve, reject) => {
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return reject(new Error("not connected"));
+    const seq = ++state.seq;
+    state.pending.set(seq, { resolve, reject, type });
+    state.ws.send(JSON.stringify({ seq, type, ...payload }));
+  });
+}
+
+// cmd sends a command for the selected servo and logs failures.
+async function cmd(type, payload = {}, msg) {
+  try {
+    await send(type, { id: state.selected, ...payload });
+    if (msg) log(msg);
+    return true;
+  } catch (e) {
+    log(`${type}: ${e.message}`, "error");
+    return false;
+  }
+}
+
+function onMessage(m) {
+  switch (m.type) {
+    case "servos": setServos(m.ids || []); break;
+    case "feedback": onFeedback(m); break;
+    case "config": onConfig(m); break;
+    case "log": log(m.message, m.level); break;
+    case "result": {
+      const p = state.pending.get(m.seq);
+      if (p) { state.pending.delete(m.seq); m.ok ? p.resolve() : p.reject(new Error(m.error)); }
+      break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------- servo list
+function setServos(ids) {
+  state.ids = ids;
+  if (!ids.includes(state.selected)) state.selected = ids.length ? ids[0] : null;
+  renderList();
+  $("main").hidden = state.selected === null;
+  if (state.selected !== null) selectServo(state.selected);
+}
+
+function renderList() {
+  const list = $("servoList");
+  if (!state.ids.length) { list.innerHTML = '<div class="empty">No servos found.<br>Check power and wiring, then scan.</div>'; return; }
+  list.innerHTML = "";
+  for (const id of state.ids) {
+    const b = document.createElement("button");
+    b.className = "servo-item" + (id === state.selected ? " active" : "");
+    b.id = "item-" + id;
+    b.innerHTML = `<div class="row1"><span class="dot"></span>ID ${id}</div><div class="row2">–</div>`;
+    b.onclick = () => selectServo(id);
+    list.appendChild(b);
+  }
+}
+
+function updateListItem(id, f) {
+  const el = $("item-" + id);
+  if (!el) return;
+  const dot = el.querySelector(".dot");
+  dot.className = "dot " + (f.error ? "bad" : f.status ? "warn" : "ok");
+  el.querySelector(".row2").textContent = f.error ? "no reply"
+    : `${(f.position * DEG).toFixed(1)}° · ${f.voltage.toFixed(1)}V · ${f.temperature}°C`;
+}
+
+function selectServo(id) {
+  state.selected = id;
+  document.querySelectorAll(".servo-item").forEach((el) => el.classList.toggle("active", el.id === "item-" + id));
+  $("selId").textContent = id;
+  $("newId").value = "";
+  $("main").hidden = false;
+  loadConfig(true);
+}
+
+async function loadConfig(syncControls) {
+  state.syncControls = syncControls;
+  await cmd("config");
+}
+
+// ---------------------------------------------------------------- telemetry
+let frameCount = 0;
+setInterval(() => { $("rate").textContent = `${frameCount} Hz`; frameCount = 0; }, 1000);
+
+function onFeedback(m) {
+  frameCount++;
+  for (const [k, f] of Object.entries(m.servos)) {
+    const id = Number(k);
+    state.fb[id] = f;
+    if (!f.error) {
+      const h = (state.hist[id] ||= []);
+      h.push({ t: m.time, position: f.position, speed: f.speed, load: f.load, current: f.current, temperature: f.temperature });
+      while (h.length && h[0].t < m.time - HISTORY_MS) h.shift();
+    }
+    updateListItem(id, f);
+  }
+  scheduleRender();
+}
+
+let renderQueued = false;
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; renderSelected(); drawChart(); });
+}
+
+function renderSelected() {
+  const f = state.fb[state.selected];
+  if (!f) return;
+  if (f.error) {
+    $("chips").innerHTML = `<span class="chip on">no reply</span>`;
+    return;
+  }
+  const deg = f.position * DEG;
+  $("tPos").innerHTML = `${f.position} <small>${deg.toFixed(1)}°</small>`;
+  $("tSpeed").innerHTML = `${f.speed} <small>${(f.speed * 60 / STEPS).toFixed(1)} rpm</small>`;
+  $("tLoad").innerHTML = `${f.load.toFixed(1)} <small>%</small>`;
+  $("tCurrent").innerHTML = `${f.current.toFixed(0)} <small>mA</small>`;
+  $("tVolt").innerHTML = `${f.voltage.toFixed(1)} <small>V</small>`;
+  $("tTemp").innerHTML = `${f.temperature} <small>°C</small>`;
+
+  let chips = f.moving ? '<span class="chip okc">moving</span>' : '<span class="chip">idle</span>';
+  if (f.regWritePending) chips += '<span class="chip">reg write pending</span>';
+  for (const [name, bit] of STATUS_BITS) chips += `<span class="chip ${f.status & bit ? "on" : ""}">${name}</span>`;
+  $("chips").innerHTML = chips;
+
+  setNeedle(deg);
+  $("dialDeg").textContent = `${deg.toFixed(1)}°`;
+  $("dialSteps").textContent = `${f.position} steps`;
+}
+
+// ---------------------------------------------------------------- dial
+const C = 120, R = 92;
+function polar(deg, r) { const a = (deg - 90) * Math.PI / 180; return [C + r * Math.cos(a), C + r * Math.sin(a)]; }
+
+(function buildTicks() {
+  const g = $("ticks");
+  let s = "";
+  for (let d = 0; d < 360; d += 10) {
+    const major = d % 90 === 0, mid = d % 30 === 0;
+    const [x1, y1] = polar(d, R + 10), [x2, y2] = polar(d, R + 10 - (major ? 12 : mid ? 8 : 4));
+    s += `<line class="tick" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${major ? 2 : 1}"/>`;
+    if (mid) { const [lx, ly] = polar(d, R - 14); s += `<text class="lbl" x="${lx}" y="${ly}">${d}</text>`; }
+  }
+  g.innerHTML = s;
+})();
+
+function setNeedle(deg) {
+  const [x, y] = polar(deg, R - 4);
+  $("needle").setAttribute("x2", x); $("needle").setAttribute("y2", y);
+}
+
+function setGoalMark(steps) {
+  const [x, y] = polar(steps * DEG, R + 4);
+  $("goalMark").setAttribute("cx", x); $("goalMark").setAttribute("cy", y);
+}
+
+function setLimitArc(min, max) {
+  const el = $("limitArc");
+  if (min === 0 && max === 0) { el.setAttribute("d", ""); return; }
+  const a0 = min * DEG, a1 = max * DEG;
+  const [x0, y0] = polar(a0, R + 4), [x1, y1] = polar(a1, R + 4);
+  el.setAttribute("d", `M ${x0} ${y0} A ${R + 4} ${R + 4} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`);
+}
+
+$("dial").addEventListener("click", (e) => {
+  const r = $("dial").getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
+  let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
+  if (deg < 0) deg += 360;
+  let steps = Math.round(deg / DEG) % STEPS;
+  const cfg = state.cfg[state.selected];
+  if (cfg && isMultiTurn(cfg)) {
+    // pick the equivalent target closest to the present position
+    const cur = state.fb[state.selected]?.position ?? 0;
+    steps += Math.round((cur - steps) / STEPS) * STEPS;
+  }
+  setTarget(steps);
+  move();
+});
+
+// ---------------------------------------------------------------- chart
+const UNITS = { position: "steps", speed: "step/s", load: "%", current: "mA", temperature: "°C" };
+$("chartTabs").addEventListener("click", (e) => {
+  const k = e.target.dataset.k;
+  if (!k) return;
+  state.chartKey = k;
+  document.querySelectorAll("#chartTabs button").forEach((b) => b.classList.toggle("active", b.dataset.k === k));
+  drawChart();
+});
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+function drawChart() {
+  const cv = $("chart"), dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const data = state.hist[state.selected] || [];
+  const key = state.chartKey;
+  const padL = 64, padR = 10, padT = 10, padB = 22;
+  const now = data.length ? data[data.length - 1].t : Date.now();
+  let lo = Infinity, hi = -Infinity;
+  for (const p of data) { lo = Math.min(lo, p[key]); hi = Math.max(hi, p[key]); }
+  if (!isFinite(lo)) { lo = 0; hi = 1; }
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const span = hi - lo; lo -= span * 0.08; hi += span * 0.08;
+  const X = (t) => padL + (w - padL - padR) * (1 - (now - t) / HISTORY_MS);
+  const Y = (v) => padT + (h - padT - padB) * (1 - (v - lo) / (hi - lo));
+
+  ctx.font = `11px ${cssVar("--mono")}`;
+  ctx.fillStyle = cssVar("--muted");
+  ctx.strokeStyle = cssVar("--grid");
+  ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + (hi - lo) * i / 4, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText(Math.abs(hi - lo) > 20 ? v.toFixed(0) : v.toFixed(1), padL - 6, y);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let s = 0; s <= 30; s += 5) ctx.fillText(s ? `-${s}s` : "now", X(now - s * 1000), h - padB + 6);
+  ctx.save(); ctx.translate(10, padT + (h - padT - padB) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = "middle"; ctx.fillText(UNITS[key], 0, 0); ctx.restore();
+
+  ctx.strokeStyle = cssVar("--accent"); ctx.lineWidth = 2; ctx.lineJoin = "round";
+  ctx.beginPath();
+  data.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p[key])) : ctx.moveTo(X(p.t), Y(p[key]))));
+  ctx.stroke();
+}
+window.addEventListener("resize", drawChart);
+
+// ---------------------------------------------------------------- config & registers
+function isMultiTurn(c) { return c.minAngleLimit === 0 && c.maxAngleLimit === 0; }
+
+function onConfig(m) {
+  const c = m.config;
+  state.cfg[m.id] = c;
+  if (m.id !== state.selected) return;
+  $("selInfo").textContent = `servo v${c.servoMajor}.${c.servoMinor} · fw ${c.firmwareMajor}.${c.firmwareMinor} · ${c.baudRate === 0 ? "1 Mbps" : "baud idx " + c.baudRate}`;
+  $("torque").checked = c.torqueEnabled;
+  $("multiturn").checked = isMultiTurn(c);
+  setMode(c.mode);
+  setLimitArc(c.minAngleLimit, c.maxAngleLimit);
+  const t = $("target");
+  if (isMultiTurn(c)) { t.min = -30719; t.max = 30719; } else { t.min = c.minAngleLimit; t.max = c.maxAngleLimit; }
+  if (state.syncControls) {
+    setTarget(c.mode === 0 ? c.goalPosition : 2048);
+    if (c.goalSpeed > 0) setPair("speed", c.goalSpeed);
+    setPair("acc", c.acceleration);
+    setPair("tlimit", Math.round(c.torqueLimit / 10));
+    state.syncControls = false;
+  }
+  renderRegisters(m.registers);
+}
+
+function renderRegisters(regs) {
+  const tb = $("regs");
+  tb.innerHTML = "";
+  for (const r of regs) {
+    const tr = document.createElement("tr");
+    const range = r.readOnly ? "" : `${r.min} … ${r.max}`;
+    tr.innerHTML = `<td class="mono">${r.addr}</td><td>${r.name}</td>
+      <td><span class="badge ${r.area === "EEPROM" ? "ee" : ""}">${r.area}</span></td>
+      <td class="mono">${r.value}</td><td>${r.unit}</td><td class="mono">${range}</td><td></td>`;
+    if (!r.readOnly) {
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.className = "num"; inp.value = r.value; inp.min = r.min; inp.max = r.max;
+      const b = document.createElement("button");
+      b.className = "btn"; b.textContent = "Set"; b.style.marginLeft = "6px";
+      b.onclick = async () => {
+        const v = Number(inp.value);
+        if (r.name === "ID" || r.name === "BaudRate") {
+          if (!confirm(`Changing ${r.name} makes the servo unreachable under its current settings. Continue?`)) return;
+        }
+        if (await cmd("write", { register: r.name, value: v }, `${r.name} ← ${v}`)) loadConfig(false);
+      };
+      tr.lastElementChild.append(inp, b);
+    }
+    tb.appendChild(tr);
+  }
+}
+
+// ---------------------------------------------------------------- controls
+function setPair(name, v) { $(name).value = v; $(name + "Num").value = v; }
+function bindPair(name, onChange) {
+  $(name).addEventListener("input", () => { $(name + "Num").value = $(name).value; onChange && onChange("input"); });
+  $(name + "Num").addEventListener("change", () => { $(name).value = $(name + "Num").value; onChange && onChange("change"); });
+}
+
+function setTarget(steps) {
+  steps = Math.max(Number($("target").min), Math.min(Number($("target").max), steps));
+  setPair("target", steps);
+  $("targetDegNum").value = (steps * DEG).toFixed(1);
+  setGoalMark(steps);
+}
+
+let followTimer = null;
+bindPair("target", (ev) => {
+  setTarget(Number($("target").value));
+  if ($("follow").checked && !followTimer) {
+    followTimer = setTimeout(() => { followTimer = null; move(true); }, 60);
+  }
+});
+$("targetDegNum").addEventListener("change", () => setTarget(Math.round(Number($("targetDegNum").value) / DEG)));
+bindPair("speed");
+bindPair("acc");
+bindPair("tlimit", (ev) => { if (ev === "change" || ev === "input") debounce("tl", () => cmd("torqueLimit", { percent: Number($("tlimit").value) }), 150); });
+bindPair("wheel");
+bindPair("pwm");
+bindPair("stepRel");
+
+const timers = {};
+function debounce(k, fn, ms) { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms); }
+
+function motion() { return { speed: Number($("speed").value), acc: Number($("acc").value) }; }
+
+async function move(quiet) {
+  const position = Number($("target").value);
+  await cmd("move", { position, ...motion() }, quiet ? null : `move → ${position} (${(position * DEG).toFixed(1)}°)`);
+}
+
+$("moveBtn").onclick = () => move();
+$("stopBtn").onclick = async () => {
+  if (await cmd("stop", {}, "stop")) {
+    const p = state.fb[state.selected]?.position;
+    if (p !== undefined) setTarget(p);
+  }
+};
+$("centerBtn").onclick = () => { setTarget(2048); move(); };
+document.querySelectorAll("[data-jog]").forEach((b) => (b.onclick = () => {
+  const base = state.fb[state.selected]?.position ?? Number($("target").value);
+  setTarget(base + Math.round(Number(b.dataset.jog) / DEG));
+  move();
+}));
+
+$("torque").onchange = (e) => cmd("torque", { on: e.target.checked }, `torque ${e.target.checked ? "on" : "off"}`);
+
+function setMode(mode) {
+  document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("active", Number(b.dataset.mode) === mode));
+  document.querySelectorAll(".mode-panel").forEach((p) => (p.hidden = Number(p.dataset.panel) !== mode));
+}
+$("modeSeg").addEventListener("click", async (e) => {
+  const mode = Number(e.target.dataset.mode);
+  if (e.target.dataset.mode === undefined) return;
+  if (await cmd("mode", { mode }, `mode → ${e.target.textContent}`)) { setMode(mode); loadConfig(true); }
+});
+
+$("wheelBtn").onclick = () => cmd("wheel", { speed: Number($("wheel").value), acc: Number($("acc").value) }, `wheel speed ${$("wheel").value}`);
+$("wheelStop").onclick = () => { setPair("wheel", 0); cmd("wheel", { speed: 0, acc: Number($("acc").value) }, "wheel stop"); };
+$("pwmBtn").onclick = () => cmd("pwm", { duty: Number($("pwm").value) }, `pwm ${$("pwm").value}`);
+$("pwmStop").onclick = () => { setPair("pwm", 0); cmd("pwm", { duty: 0 }, "pwm stop"); };
+$("stepBtn").onclick = () => cmd("move", { position: Number($("stepRel").value), ...motion() }, `step ${$("stepRel").value}`);
+
+$("multiturn").onchange = async (e) => {
+  if (await cmd("multiturn", { on: e.target.checked }, `multi-turn ${e.target.checked ? "on" : "off"}`)) loadConfig(false);
+};
+$("calibBtn").onclick = async () => {
+  if (!confirm("Make the current position read 2048 (center)? This is saved in EEPROM.")) return;
+  if (await cmd("calibrate", {}, "center calibrated")) loadConfig(true);
+};
+$("setIdBtn").onclick = async () => {
+  const newId = Number($("newId").value);
+  if ($("newId").value === "" || newId < 0 || newId > 253) return log("ID must be 0..253", "error");
+  if (!confirm(`Change servo ${state.selected} to ID ${newId}?`)) return;
+  const old = state.selected;
+  if (await cmd("setid", { newId }, `ID ${old} → ${newId}`)) { state.hist[newId] = state.hist[old]; selectServo(newId); }
+};
+$("cfgBtn").onclick = () => loadConfig(false);
+$("scanBtn").onclick = async () => {
+  $("scanBtn").disabled = true;
+  try { await send("scan"); } catch (e) { log(e.message, "error"); }
+  $("scanBtn").disabled = false;
+};
+
+// ---------------------------------------------------------------- log
+function log(msg, level = "info") {
+  const el = document.createElement("div");
+  el.className = level;
+  el.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>`;
+  el.append(document.createTextNode(msg));
+  const box = $("log");
+  box.prepend(el);
+  while (box.children.length > 200) box.lastChild.remove();
+}
+
+connect();
+</script>
+</body>
+</html>
