@@ -391,3 +391,40 @@ func TestWriteTemporary(t *testing.T) {
 		t.Fatal("temporary write")
 	}
 }
+
+func TestNearestEquivalent(t *testing.T) {
+	cases := []struct{ cur, target, want int }{
+		{4000, 100, 4196},    // 351.6° -> 8.8°: forward across the seam
+		{100, 4000, -96},     // backward across the seam
+		{1000, 3000, 3000},   // within a turn: unchanged
+		{5000, 100, 4196},    // second turn
+		{-3000, 2048, -2048}, // negative multi-turn positions
+		{2048, 2048 + 4096, 2048},
+	}
+	for _, c := range cases {
+		if got := NearestEquivalent(c.cur, c.target); got != c.want {
+			t.Errorf("NearestEquivalent(%d, %d) = %d, want %d", c.cur, c.target, got, c.want)
+		}
+	}
+}
+
+func TestMoveToShortest(t *testing.T) {
+	b, p := newTestBus(t, 1)
+	s := b.Servo(1)
+	putU16(p.servos[1].mem[RegPresentPosition.Addr:], 4000)
+	if err := s.MoveToShortest(100, 0, 0); err != nil { // single-turn: plain MoveTo
+		t.Fatal(err)
+	}
+	if physGoal(p, 1) != 100 {
+		t.Fatal("single-turn", physGoal(p, 1))
+	}
+	if err := s.SetMultiTurn(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MoveToShortest(100, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if physGoal(p, 1) != 4196 {
+		t.Fatal("multi-turn", physGoal(p, 1))
+	}
+}

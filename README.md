@@ -42,6 +42,7 @@ fmt.Printf("%.1f° %.1fV %d°C %.0fmA %s\n",
 | Discovery | `Bus.Scan`, `Bus.Ping`, `Bus.Identify` (one servo on the bus) |
 | Position mode | `MoveTo`, `MoveToDegrees`, `MoveToAndWait`, `Stop`, `SetAcceleration` |
 | Multi-turn | `SetMultiTurn(true)` → goal range ±30719 steps (±7.5 turns) |
+| Shortest path | `MoveToShortest` (servo and group) / `NearestEquivalent`: in multi-turn mode, go the short way round across 0°/360° |
 | Other modes | `SetMode(ModeWheel/ModePWM/ModeStep)`, `SetWheelSpeed`, `SetPWM` |
 | Multiple servos | `Bus.SyncMove`, `Bus.SyncTorque`, `Bus.SyncFeedback`, `RegMoveTo` + `Bus.Action` |
 | Mirroring | `Bus.SetMirrored(id, true)` / `WithMirrored(ids...)` for a servo mounted facing its partner: the same commands move both in sync |

@@ -417,7 +417,7 @@ td .num { width: 90px; padding: 3px 6px; }
           <div class="row">
             <label class="switch"><input type="checkbox" id="follow"><span class="track"></span><span>Move while dragging</span></label>
           </div>
-          <p class="hint">Press Enter in a target field or click the dial to move there. Range follows the angle limits (±30719 in multi-turn).</p>
+          <p class="hint">Press Enter in a target field or click the dial to move there. Range follows the angle limits. In multi-turn mode, angle moves take the shortest way round (within one turn either side of center).</p>
         </div>
 
         <div class="mode-panel" data-panel="1" hidden>
@@ -1078,14 +1078,7 @@ $("dial").addEventListener("click", (e) => {
   const x = (e.clientX - r.left) / r.width * 240 - C, y = (e.clientY - r.top) / r.height * 240 - C;
   let deg = Math.atan2(y, x) * 180 / Math.PI + 90;
   if (deg < 0) deg += 360;
-  let steps = Math.round(deg / DEG) % STEPS;
-  const cfg = state.cfg[state.selected];
-  if (cfg && isMultiTurn(cfg)) {
-    // pick the equivalent target closest to the present position
-    const cur = state.fb[state.selected]?.position ?? 0;
-    steps += Math.round((cur - steps) / STEPS) * STEPS;
-  }
-  setTarget(steps);
+  setTarget(shortestTarget(Math.round(deg / DEG) % STEPS));
   move();
 });
 
@@ -1246,7 +1239,7 @@ bindPair("target", (ev) => {
     followTimer = setTimeout(() => { followTimer = null; move(true); }, 60);
   }
 });
-$("targetDegNum").addEventListener("change", () => setTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value))));
+$("targetDegNum").addEventListener("change", () => setTarget(shortestTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value)))));
 // Enter in either target field moves there right away.
 $("targetNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1255,7 +1248,7 @@ $("targetNum").addEventListener("keydown", (e) => {
 });
 $("targetDegNum").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  setTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value)));
+  setTarget(shortestTarget(stepsFromVdeg(state.selected, Number($("targetDegNum").value))));
   move();
 });
 bindPair("speed");
@@ -1271,6 +1264,29 @@ const timers = {};
 function debounce(k, fn, ms) { clearTimeout(timers[k]); timers[k] = setTimeout(fn, ms); }
 
 function motion() { return { speed: Number($("speed").value), acc: Number($("acc").value) }; }
+
+// shortestTarget turns an angle (as steps) into the goal reached the short way
+// round. Only multi-turn mode can cross the 0°/360° seam; the goal is kept
+// within one turn either side of the center so a cable can't wind up.
+const TURN_WINDOW = [2048 - STEPS, 2048 + STEPS];
+let seamHinted = false;
+function shortestTarget(steps) {
+  const id = state.selected, cur = state.fb[id]?.position;
+  if (cur === undefined) return steps;
+  if (!multiTurnOf(id)) {
+    const want = ((steps % STEPS) + STEPS) % STEPS;
+    if (Math.abs(want - cur) > STEPS / 2 && !seamHinted) {
+      seamHinted = true;
+      log("The short way to this angle crosses 0°/360°, which single-turn mode can't do. Turn on Multi-turn in Setup to always take the shortest way.");
+    }
+    return want;
+  }
+  const want = ((steps % STEPS) + STEPS) % STEPS;
+  let best = want + Math.round((cur - want) / STEPS) * STEPS;
+  if (best < TURN_WINDOW[0]) best += STEPS;
+  if (best > TURN_WINDOW[1]) best -= STEPS;
+  return best;
+}
 
 async function move(quiet) {
   const position = Number($("target").value);

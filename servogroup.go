@@ -45,6 +45,24 @@ func (g *Group) MoveTo(pos, speed int, acc uint8) error {
 	return g.bus.SyncMove(targets...)
 }
 
+// MoveToShortest moves all members to the angle of pos the short way round
+// (relative to the leader) when the leader is in multi-turn mode; otherwise
+// it is MoveTo.
+func (g *Group) MoveToShortest(pos, speed int, acc uint8) error {
+	lo, hi, err := g.Leader().AngleLimits()
+	if err != nil {
+		return err
+	}
+	if lo == 0 && hi == 0 {
+		cur, err := g.Leader().Position()
+		if err != nil {
+			return err
+		}
+		pos = clampMultiTurn(NearestEquivalent(cur, pos))
+	}
+	return g.MoveTo(pos, speed, acc)
+}
+
 // StepBy moves all members a relative number of steps in ModeStep.
 func (g *Group) StepBy(steps, speed int, acc uint8) error {
 	entries := make([]SyncWriteEntry, len(g.ids))

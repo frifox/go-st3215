@@ -4,6 +4,7 @@
 [1]
 Name = "Right Servo"
 Mirrored = true
+Zero = 270.0
 
 [2]
 Name = "Left Servo"

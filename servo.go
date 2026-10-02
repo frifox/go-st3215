@@ -587,6 +587,58 @@ func (s *Servo) MoveToDegrees(deg float64, speed int, acc uint8) error {
 	return s.MoveTo(DegreesToSteps(deg), speed, acc)
 }
 
+// NearestEquivalent returns the position that points the same way as target
+// (equal modulo one turn) and is closest to current, i.e. the end point of the
+// shortest way round. Only meaningful in multi-turn mode; in single-turn mode
+// the servo cannot cross the 0/4095 seam.
+func NearestEquivalent(current, target int) int {
+	want := ((target % StepsPerRev) + StepsPerRev) % StepsPerRev
+	base := current - ((current%StepsPerRev)+StepsPerRev)%StepsPerRev
+	best := base + want
+	for _, c := range []int{best - StepsPerRev, best + StepsPerRev} {
+		if abs(c-current) < abs(best-current) {
+			best = c
+		}
+	}
+	return best
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// MoveToShortest moves to the angle of pos (taken modulo one turn) the short
+// way round when the servo is in multi-turn mode; otherwise it is MoveTo.
+func (s *Servo) MoveToShortest(pos, speed int, acc uint8) error {
+	lo, hi, err := s.AngleLimits()
+	if err != nil {
+		return err
+	}
+	if lo == 0 && hi == 0 {
+		cur, err := s.Position()
+		if err != nil {
+			return err
+		}
+		pos = clampMultiTurn(NearestEquivalent(cur, pos))
+	}
+	return s.MoveTo(pos, speed, acc)
+}
+
+// clampMultiTurn keeps a goal inside the multi-turn range, going the other
+// way round if the short way would leave it.
+func clampMultiTurn(p int) int {
+	for p > MultiTurnLimit {
+		p -= StepsPerRev
+	}
+	for p < -MultiTurnLimit {
+		p += StepsPerRev
+	}
+	return p
+}
+
 // RegMoveTo stages a MoveTo that executes on the next Bus.Action, so several
 // servos can start at exactly the same time.
 func (s *Servo) RegMoveTo(pos, speed int, acc uint8) error {
