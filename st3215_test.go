@@ -115,6 +115,14 @@ func TestPingScanIdentify(t *testing.T) {
 		t.Fatalf("scan: %v %v", found, err)
 	}
 
+	var probed []uint8
+	found, err = b.ScanRange(context.Background(), 5, 10, 2*time.Millisecond, func(id uint8, ok bool) {
+		probed = append(probed, id)
+	})
+	if err != nil || len(found) != 1 || found[0].ID != 7 || len(probed) != 6 {
+		t.Fatalf("scan range: %v %v %v", found, probed, err)
+	}
+
 	b1, _ := newTestBus(t, 9)
 	if id, err := b1.Identify(); err != nil || id != 9 {
 		t.Fatalf("identify: %d %v", id, err)

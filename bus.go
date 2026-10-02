@@ -268,30 +268,47 @@ type ScanResult struct {
 	Status Status
 }
 
-// Scan pings IDs 0..253 and returns the servos that answered. timeout is used
-// per ID (e.g. 10ms) instead of the bus timeout; retries are disabled.
+// Scan pings IDs 0..253 and returns the servos that answered. timeout is the
+// reply timeout per ID (e.g. 10ms); retries are disabled while probing.
 func (b *Bus) Scan(ctx context.Context, timeout time.Duration) ([]ScanResult, error) {
-	b.mu.Lock()
-	saved, savedRetries := b.timeout, b.retries
-	b.timeout, b.retries = timeout, 0
-	_ = b.port.SetReadTimeout(timeout)
-	b.mu.Unlock()
-	defer func() {
-		b.mu.Lock()
-		b.timeout, b.retries = saved, savedRetries
-		_ = b.port.SetReadTimeout(saved)
-		b.mu.Unlock()
-	}()
+	return b.ScanRange(ctx, 0, MaxID, timeout, nil)
+}
 
+// ScanRange pings IDs first..last and returns the servos that answered.
+// progress, if not nil, is called after each probe with the ID just probed
+// and whether it answered. Other bus users are not affected by the short
+// probe timeout.
+func (b *Bus) ScanRange(ctx context.Context, first, last uint8, timeout time.Duration, progress func(id uint8, found bool)) ([]ScanResult, error) {
 	var found []ScanResult
-	for id := 0; id <= int(MaxID); id++ {
+	for id := int(first); id <= int(last) && id <= int(MaxID); id++ {
 		if err := ctx.Err(); err != nil {
 			return found, err
 		}
-		st, err := b.Ping(uint8(id))
+		st, err := b.probe(uint8(id), timeout)
 		if err == nil {
 			found = append(found, ScanResult{ID: uint8(id), Status: st})
 		}
+		if progress != nil {
+			progress(uint8(id), err == nil)
+		}
 	}
 	return found, nil
+}
+
+// probe pings one ID with a custom timeout and no retries.
+func (b *Bus) probe(id uint8, timeout time.Duration) (Status, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	saved := b.timeout
+	b.timeout = timeout
+	_ = b.port.SetReadTimeout(timeout)
+	defer func() {
+		b.timeout = saved
+		_ = b.port.SetReadTimeout(saved)
+	}()
+	if err := b.send(id, InstPing, nil); err != nil {
+		return 0, err
+	}
+	r, err := b.recv(id, 0)
+	return r.Status, err
 }

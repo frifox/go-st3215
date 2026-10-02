@@ -2,9 +2,13 @@
 // streams servo telemetry and accepts control commands, plus a web page
 // (web/index.html, embedded) to monitor and drive the servos.
 //
-//	go run . -port /dev/ttyACM0          # real hardware (Linux)
-//	go run . -port /dev/cu.usbmodem1101  # real hardware (macOS)
-//	go run . -sim 1,2                    # simulated servos, no hardware
+// The page walks through three steps: pick the driver board (serial port),
+// scan it for servos, then monitor/control the servos that were found.
+//
+//	go run .                               # choose the port in the browser
+//	go run . -port /dev/ttyACM0            # connect on startup (Linux)
+//	go run . -port /dev/cu.usbmodem1101    # connect on startup (macOS)
+//	go run . -sim 1,2,3                    # connect to simulated servos on startup
 //
 // Then open http://localhost:8080.
 package main
@@ -20,56 +24,52 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
 	"github.com/gorilla/websocket"
+	"go.bug.st/serial/enumerator"
 )
 
 //go:embed web/index.html
 var indexHTML []byte
 
+// simPortName is the pseudo port that selects the simulated driver board.
+const simPortName = "sim"
+
 func main() {
-	port := flag.String("port", os.Getenv("ST3215_PORT"), "serial device of the Bus Servo Adapter")
-	baud := flag.Int("baud", st3215.DefaultBaudRate, "bus baud rate")
+	port := flag.String("port", os.Getenv("ST3215_PORT"), "serial device to connect to on startup (optional)")
+	baud := flag.Int("baud", st3215.DefaultBaudRate, "bus baud rate used with -port")
 	addr := flag.String("addr", "localhost:8080", "HTTP listen address")
-	sim := flag.String("sim", "", "simulate servos with these IDs instead of using hardware, e.g. 1,2")
+	sim := flag.String("sim", "", "connect to simulated servos with these IDs on startup, e.g. 1,2,3")
 	poll := flag.Duration("poll", 50*time.Millisecond, "telemetry polling interval")
 	noSync := flag.Bool("nosync", false, "poll servos one by one instead of SYNC READ")
 	flag.Parse()
 
-	var bus *st3215.Bus
-	var err error
-	switch {
-	case *sim != "":
-		ids, perr := parseIDs(*sim)
-		if perr != nil {
-			log.Fatal(perr)
-		}
-		bus, err = st3215.NewBus(newSimPort(ids...))
-		log.Printf("simulating servos %v", ids)
-	case *port != "":
-		bus, err = st3215.Open(*port, *baud)
-		log.Printf("opened %s at %d baud", *port, *baud)
-	default:
-		ports, _ := st3215.ListPorts()
-		log.Fatalf("pass -port <device> (available: %v) or -sim 1,2", ports)
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer bus.Close()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv := &server{bus: bus, clients: map[*client]struct{}{}, poll: *poll, noSync: *noSync}
-	srv.scan(ctx)
+	srv := &server{clients: map[*client]struct{}{}, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
+	if *sim != "" {
+		ids, err := parseIDs(*sim)
+		if err != nil {
+			log.Fatal(err)
+		}
+		srv.simIDs = ids
+		*port = simPortName
+	}
+	if *port != "" {
+		if err := srv.connect(*port, *baud); err != nil {
+			log.Fatal(err)
+		}
+		go srv.scan(ctx, 0, st3215.MaxID)
+	}
+	defer srv.disconnect()
 	go srv.pollLoop(ctx)
 
 	mux := http.NewServeMux()
@@ -102,17 +102,25 @@ func parseIDs(s string) ([]uint8, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Server state and broadcasting
+// Server state
 
 type server struct {
-	bus      *st3215.Bus
-	poll     time.Duration
-	noSync   bool
-	scanning atomic.Bool
+	poll   time.Duration
+	noSync bool
+	simIDs []uint8
 
-	mu      sync.Mutex
-	ids     []uint8
-	clients map[*client]struct{}
+	// busMu guards bus: users hold it for reading, connect/disconnect swap it.
+	busMu sync.RWMutex
+	bus   *st3215.Bus
+
+	mu         sync.Mutex
+	port       string
+	baud       int
+	ids        []uint8 // servos found by the last scan
+	scanned    bool    // a scan has completed on this connection
+	scanning   bool
+	scanCancel context.CancelFunc
+	clients    map[*client]struct{}
 }
 
 type client struct {
@@ -128,19 +136,6 @@ func (c *client) push(msg any) {
 	}
 }
 
-func (s *server) servoIDs() []uint8 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.ids)
-}
-
-func (s *server) setIDs(ids []uint8) {
-	s.mu.Lock()
-	s.ids = ids
-	s.mu.Unlock()
-	s.broadcast(newServosMsg(ids))
-}
-
 func (s *server) broadcast(msg any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,21 +144,202 @@ func (s *server) broadcast(msg any) {
 	}
 }
 
-func (s *server) scan(ctx context.Context) {
-	s.scanning.Store(true)
-	defer s.scanning.Store(false)
-	s.broadcast(logMsg{Type: "log", Level: "info", Message: "scanning bus..."})
-	found, err := s.bus.Scan(ctx, 15*time.Millisecond)
-	ids := []uint8{}
-	for _, f := range found {
-		ids = append(ids, f.ID)
+func (s *server) stateMsg() stateMsg {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return stateMsg{Type: "state", Connected: s.port != "", Port: s.port, Baud: s.baud,
+		Scanning: s.scanning, Scanned: s.scanned, IDs: toInts(s.ids)}
+}
+
+func (s *server) broadcastState() { s.broadcast(s.stateMsg()) }
+
+func (s *server) servoIDs() []uint8 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.ids)
+}
+
+func (s *server) logf(level, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	log.Print(msg)
+	s.broadcast(logMsg{Type: "log", Level: level, Message: msg})
+}
+
+// withBus runs f with the connected bus, or fails if there is none.
+func (s *server) withBus(f func(*st3215.Bus) error) error {
+	s.busMu.RLock()
+	defer s.busMu.RUnlock()
+	if s.bus == nil {
+		return errors.New("no driver board connected")
+	}
+	return f(s.bus)
+}
+
+func toInts(ids []uint8) []int {
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		out[i] = int(id)
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Ports, connection and scanning
+
+type portInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	USB         bool   `json:"usb"`
+	VID         string `json:"vid,omitempty"`
+	PID         string `json:"pid,omitempty"`
+	Serial      string `json:"serial,omitempty"`
+	Likely      bool   `json:"likely"` // looks like a Bus Servo Adapter (USB-UART bridge)
+}
+
+// usbBridges maps USB vendor IDs of common USB-UART bridges to a name. The
+// Bus Servo Adapter (A) uses a WCH CH34x chip.
+var usbBridges = map[string]string{
+	"1A86": "WCH CH34x",
+	"0403": "FTDI",
+	"10C4": "Silicon Labs CP210x",
+	"067B": "Prolific PL2303",
+}
+
+func listPorts() ([]portInfo, error) {
+	details, err := enumerator.GetDetailedPortsList()
+	if err != nil {
+		return nil, err
+	}
+	out := []portInfo{}
+	for _, d := range details {
+		// On macOS every device appears as /dev/tty.* and /dev/cu.*; the cu
+		// device is the one to use for outgoing connections.
+		if runtime.GOOS == "darwin" && strings.HasPrefix(d.Name, "/dev/tty.") {
+			continue
+		}
+		p := portInfo{Name: d.Name, USB: d.IsUSB, VID: strings.ToUpper(d.VID), PID: strings.ToUpper(d.PID), Serial: d.SerialNumber}
+		bridge, known := usbBridges[p.VID]
+		p.Likely = d.IsUSB && known
+		var desc []string
+		if d.Product != "" {
+			desc = append(desc, d.Product)
+		}
+		if known {
+			desc = append(desc, bridge)
+		}
+		if d.IsUSB {
+			desc = append(desc, fmt.Sprintf("USB %s:%s", p.VID, p.PID))
+		}
+		p.Description = strings.Join(desc, " · ")
+		out = append(out, p)
+	}
+	rank := func(p portInfo) int {
+		switch {
+		case p.Likely:
+			return 0
+		case p.USB:
+			return 1
+		}
+		return 2
+	}
+	slices.SortStableFunc(out, func(a, b portInfo) int { return rank(a) - rank(b) })
+	return out, nil
+}
+
+func (s *server) connect(port string, baud int) error {
+	if port == "" {
+		return errors.New("no port selected")
+	}
+	s.disconnect()
+	if baud <= 0 {
+		baud = st3215.DefaultBaudRate
+	}
+	var bus *st3215.Bus
+	var err error
+	if port == simPortName {
+		bus, err = st3215.NewBus(newSimPort(s.simIDs...))
+	} else {
+		bus, err = st3215.Open(port, baud)
 	}
 	if err != nil {
-		log.Printf("scan: %v", err)
+		return err
 	}
-	log.Printf("servos found: %v", ids)
-	s.setIDs(ids)
-	s.broadcast(logMsg{Type: "log", Level: "info", Message: fmt.Sprintf("found %d servo(s): %v", len(ids), ids)})
+	s.busMu.Lock()
+	s.bus = bus
+	s.busMu.Unlock()
+	s.mu.Lock()
+	s.port, s.baud, s.ids, s.scanned = port, baud, nil, false
+	s.mu.Unlock()
+	s.logf("info", "connected to %s at %d baud", port, baud)
+	s.broadcastState()
+	return nil
+}
+
+func (s *server) disconnect() {
+	s.mu.Lock()
+	if s.scanCancel != nil {
+		s.scanCancel()
+	}
+	wasConnected := s.port != ""
+	s.mu.Unlock()
+
+	s.busMu.Lock() // waits for an in-flight scan or command to finish
+	if s.bus != nil {
+		s.bus.Close()
+		s.bus = nil
+	}
+	s.busMu.Unlock()
+
+	s.mu.Lock()
+	s.port, s.baud, s.ids, s.scanned = "", 0, nil, false
+	s.mu.Unlock()
+	if wasConnected {
+		s.logf("info", "disconnected")
+		s.broadcastState()
+	}
+}
+
+func (s *server) scan(ctx context.Context, first, last uint8) error {
+	s.mu.Lock()
+	if s.scanning {
+		s.mu.Unlock()
+		return errors.New("a scan is already running")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	s.scanning, s.scanCancel = true, cancel
+	s.mu.Unlock()
+	defer cancel()
+	s.broadcastState()
+
+	total := int(last) - int(first) + 1
+	var found []uint8
+	err := s.withBus(func(bus *st3215.Bus) error {
+		_, err := bus.ScanRange(ctx, first, last, 15*time.Millisecond, func(id uint8, ok bool) {
+			if ok {
+				found = append(found, id)
+			}
+			s.broadcast(scanProgressMsg{Type: "scanProgress", Done: int(id) - int(first) + 1,
+				Total: total, Current: int(id), Found: toInts(found)})
+		})
+		return err
+	})
+
+	s.mu.Lock()
+	s.scanning, s.scanCancel = false, nil
+	if err == nil {
+		s.ids, s.scanned = found, true
+	}
+	s.mu.Unlock()
+	switch {
+	case errors.Is(err, context.Canceled):
+		s.logf("info", "scan cancelled")
+	case err != nil:
+		s.logf("error", "scan stopped: %v", err)
+	default:
+		s.logf("info", "scan found %d servo(s): %v", len(found), found)
+	}
+	s.broadcastState()
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -184,25 +360,29 @@ func (s *server) pollLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		ids := s.servoIDs()
-		if len(ids) == 0 || s.scanning.Load() {
+		s.mu.Lock()
+		ids, scanning := slices.Clone(s.ids), s.scanning
+		s.mu.Unlock()
+		if len(ids) == 0 || scanning {
 			continue
 		}
 		states := map[string]servoState{}
-		if s.noSync {
-			for _, id := range ids {
-				f, err := s.bus.Servo(id).Feedback()
-				states[strconv.Itoa(int(id))] = toState(f, err)
+		err := s.withBus(func(bus *st3215.Bus) error {
+			if s.noSync {
+				for _, id := range ids {
+					f, err := bus.Servo(id).Feedback()
+					states[strconv.Itoa(int(id))] = toState(f, err)
+				}
+				return nil
 			}
-		} else {
-			res, err := s.bus.SyncFeedback(ids...)
-			if err != nil {
-				log.Printf("poll: %v", err)
-				continue
-			}
+			res, err := bus.SyncFeedback(ids...)
 			for id, r := range res {
 				states[strconv.Itoa(int(id))] = toState(r.Feedback, r.Err)
 			}
+			return err
+		})
+		if err != nil {
+			continue
 		}
 		s.broadcast(feedbackMsg{Type: "feedback", Time: time.Now().UnixMilli(), Servos: states})
 	}
@@ -219,17 +399,28 @@ func toState(f st3215.Feedback, err error) servoState {
 // ---------------------------------------------------------------------------
 // Messages
 
-type servosMsg struct {
-	Type string `json:"type"`
-	IDs  []int  `json:"ids"` // not []uint8: encoding/json would emit base64
+type stateMsg struct {
+	Type      string `json:"type"`
+	Connected bool   `json:"connected"`
+	Port      string `json:"port"`
+	Baud      int    `json:"baud"`
+	Scanning  bool   `json:"scanning"`
+	Scanned   bool   `json:"scanned"`
+	IDs       []int  `json:"ids"` // not []uint8: encoding/json would emit base64
 }
 
-func newServosMsg(ids []uint8) servosMsg {
-	out := make([]int, len(ids))
-	for i, id := range ids {
-		out[i] = int(id)
-	}
-	return servosMsg{Type: "servos", IDs: out}
+type portsMsg struct {
+	Type  string     `json:"type"`
+	Ports []portInfo `json:"ports"`
+	Sim   string     `json:"sim"` // description of the simulated board
+}
+
+type scanProgressMsg struct {
+	Type    string `json:"type"`
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Current int    `json:"current"`
+	Found   []int  `json:"found"`
 }
 
 type feedbackMsg struct {
@@ -276,6 +467,10 @@ type request struct {
 	Seq      int     `json:"seq"`
 	Type     string  `json:"type"`
 	ID       uint8   `json:"id"`
+	Port     string  `json:"port"`
+	Baud     int     `json:"baud"`
+	First    uint8   `json:"first"`
+	Last     uint8   `json:"last"`
 	Position int     `json:"position"`
 	Speed    int     `json:"speed"`
 	Acc      uint8   `json:"acc"`
@@ -301,12 +496,11 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := &client{conn: conn, send: make(chan any, 64)}
+	c := &client{conn: conn, send: make(chan any, 256)}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
-	ids := slices.Clone(s.ids)
 	s.mu.Unlock()
-	c.send <- newServosMsg(ids)
+	c.push(s.stateMsg())
 
 	done := make(chan struct{})
 	go func() { // writer
@@ -330,6 +524,9 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		close(done)
 	}()
+
+	// Commands of one client run in order, so rapid moves can't overtake each
+	// other. Scans run in the background so they can be cancelled.
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -340,27 +537,64 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 			c.push(resultMsg{Type: "result", Seq: req.Seq, Error: "bad request: " + err.Error()})
 			continue
 		}
-		// Commands of one client run in order, so rapid moves can't overtake each other.
-		s.handle(r.Context(), c, req)
+		if req.Type == "scan" {
+			go s.handle(c, req)
+			continue
+		}
+		s.handle(c, req)
 	}
 }
 
-func (s *server) handle(ctx context.Context, c *client, req request) {
-	err := s.exec(ctx, c, req)
+func (s *server) handle(c *client, req request) {
+	err := s.exec(c, req)
 	res := resultMsg{Type: "result", Seq: req.Seq, OK: err == nil}
 	if err != nil {
 		res.Error = err.Error()
-		log.Printf("%s servo %d: %v", req.Type, req.ID, err)
+		log.Printf("%s: %v", req.Type, err)
 	}
 	c.push(res)
 }
 
-func (s *server) exec(ctx context.Context, c *client, req request) error {
-	sv := s.bus.Servo(req.ID)
+func (s *server) exec(c *client, req request) error {
 	switch req.Type {
-	case "scan":
-		s.scan(ctx)
+	case "ports":
+		ports, err := listPorts()
+		if err != nil {
+			return err
+		}
+		c.push(portsMsg{Type: "ports", Ports: ports, Sim: fmt.Sprintf("Simulated board with servos %v", s.simIDs)})
 		return nil
+	case "connect":
+		return s.connect(req.Port, req.Baud)
+	case "disconnect":
+		s.disconnect()
+		return nil
+	case "scan":
+		last := req.Last
+		if last == 0 || last > st3215.MaxID {
+			last = st3215.MaxID
+		}
+		if req.First > last {
+			return fmt.Errorf("invalid ID range %d..%d", req.First, last)
+		}
+		return s.scan(context.Background(), req.First, last)
+	case "cancelScan":
+		s.mu.Lock()
+		if s.scanCancel != nil {
+			s.scanCancel()
+		}
+		s.mu.Unlock()
+		return nil
+	}
+	return s.withBus(func(bus *st3215.Bus) error { return s.servoCommand(c, bus, req) })
+}
+
+func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
+	if !slices.Contains(s.servoIDs(), req.ID) {
+		return fmt.Errorf("servo %d was not found by the last scan", req.ID)
+	}
+	sv := bus.Servo(req.ID)
+	switch req.Type {
 	case "torque":
 		return sv.EnableTorque(req.On)
 	case "move":
@@ -386,10 +620,12 @@ func (s *server) exec(ctx context.Context, c *client, req request) error {
 		if err := sv.SetID(req.NewID); err != nil {
 			return err
 		}
-		ids := slices.DeleteFunc(s.servoIDs(), func(id uint8) bool { return id == req.ID })
-		ids = append(ids, req.NewID)
-		slices.Sort(ids)
-		s.setIDs(ids)
+		s.mu.Lock()
+		s.ids = slices.DeleteFunc(s.ids, func(id uint8) bool { return id == req.ID })
+		s.ids = append(s.ids, req.NewID)
+		slices.Sort(s.ids)
+		s.mu.Unlock()
+		s.broadcastState()
 		return nil
 	case "write":
 		reg, ok := st3215.RegisterByName(req.Register)

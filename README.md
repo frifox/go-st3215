@@ -52,22 +52,29 @@ The `Bus` is safe for concurrent use.
 
 ## Demo: web console
 
-[`example/`](example) is a WebSocket server plus a web page to monitor and drive the servos:
-a live position dial, telemetry, 30 s history charts, controls for every mode, setup actions
-(center calibration, ID change, multi-turn) and an editable view of the full memory table.
+[`example/`](example) is a WebSocket server plus a web page to set up, monitor and drive the servos.
+The page walks through three steps:
+
+1. **Driver board**: lists serial ports with their USB details and marks likely adapters
+   (WCH CH34x, FTDI, CP210x, PL2303). Pick one (or the built-in simulator) and a baud rate.
+2. **Find servos**: scans an ID range (quick 0–20 or full 0–253) with live progress.
+3. **Monitor & control**: only the servos found are shown. You get a live position dial, telemetry,
+   30 s history charts, controls for every mode, setup actions (center calibration, ID change,
+   multi-turn) and an editable view of the full memory table.
 
 ```bash
 cd example
-go run . -port /dev/ttyACM0            # Linux
-go run . -port /dev/cu.usbmodem1101    # macOS
+go run .                               # pick the board in the browser
+go run . -port /dev/ttyACM0            # connect + scan on startup (Linux)
+go run . -port /dev/cu.usbmodem1101    # connect + scan on startup (macOS)
 go run . -sim 1,2,3                    # simulated servos, no hardware needed
 ```
 
-Then open http://localhost:8080. Flags: `-baud`, `-addr`, `-poll` (telemetry interval,
+Then open http://localhost:8080. Other flags: `-baud`, `-addr`, `-poll` (telemetry interval,
 default 50 ms) and `-nosync` (poll servos one by one if SYNC READ misbehaves).
 
 The demo is a separate Go module (`example/go.mod`), so the library itself only depends on
-`go.bug.st/serial`.
+`go.bug.st/serial`. Listing USB port details uses cgo on macOS (the Xcode command line tools).
 
 ## Platform notes
 

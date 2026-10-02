@@ -2,11 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "example-sim",
+      "name": "example",
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd example && go run . -sim 1,2,3 -addr localhost:8080"
+        "cd example && go run . -addr localhost:8080"
       ],
       "port": 8080
     }

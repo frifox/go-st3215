@@ -129,6 +129,34 @@ td.mono { font-family: var(--mono); }
 td .num { width: 90px; padding: 3px 6px; }
 .badge { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
 .badge.ee { color: var(--warn); border-color: var(--warn); }
+/* setup steps */
+.wizard { max-width: 760px; margin: 24px auto; padding: 0 16px; display: grid; gap: 16px; }
+.steps { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+.steps .step { display: inline-flex; align-items: center; gap: 6px; }
+.steps .n { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--border); font-size: 12px; }
+.steps .step.cur { color: var(--text); font-weight: 600; }
+.steps .step.cur .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.steps .step.done .n { background: var(--ok); border-color: var(--ok); color: #fff; }
+.steps .arrow { opacity: .5; }
+.port-list { display: grid; gap: 8px; }
+.port-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--panel); }
+.port-row:hover { border-color: var(--accent); }
+.port-row.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+.port-row input { accent-color: var(--accent); margin: 0; }
+.port-row .name { font: 600 13px var(--mono); overflow-wrap: anywhere; }
+.port-row .desc { color: var(--muted); font-size: 12px; }
+.badge.likely { color: var(--ok); border-color: var(--ok); }
+.badge.simb { color: var(--accent); border-color: var(--accent); }
+.form-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.form-row select, .form-row input[type=number] { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.form-row input[type=number] { width: 80px; font-family: var(--mono); }
+.err { color: var(--bad); font-size: 13px; margin-top: 10px; }
+.err:empty { display: none; }
+.progress { height: 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; margin-top: 14px; }
+.progress .bar { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+.found { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; min-height: 30px; align-items: center; }
+.found .chip { font: 600 13px var(--mono); color: var(--ok); border-color: var(--ok); padding: 4px 10px; }
+[hidden] { display: none !important; }
 /* log */
 #log { font: 12px var(--mono); max-height: 180px; overflow-y: auto; padding: 8px 14px; }
 #log div { padding: 2px 0; border-bottom: 1px dashed var(--grid); }
@@ -140,12 +168,75 @@ td .num { width: 90px; padding: 3px 6px; }
 <header>
   <h1>ST3215 Console</h1>
   <span class="pill"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
-  <span class="pill" id="rate">– Hz</span>
+  <span class="pill" id="boardPill" hidden title="Driver board"><span class="dot ok"></span><span id="boardName"></span></span>
+  <span class="pill" id="rate" hidden>– Hz</span>
   <span class="spacer"></span>
-  <button class="btn" id="scanBtn">Scan bus</button>
+  <button class="btn" id="toScanBtn" hidden>Scan servos</button>
+  <button class="btn" id="toBoardBtn" hidden>Change board</button>
 </header>
 
-<div class="layout">
+<div class="wizard" id="wizard">
+  <div class="steps">
+    <span class="step" id="step1"><span class="n">1</span>Driver board</span><span class="arrow">→</span>
+    <span class="step" id="step2"><span class="n">2</span>Find servos</span><span class="arrow">→</span>
+    <span class="step" id="step3"><span class="n">3</span>Monitor &amp; control</span>
+  </div>
+
+  <section class="card" id="connectView">
+    <h2>Select driver board <span class="spacer"></span><button class="btn" id="refreshPorts" style="text-transform:none;letter-spacing:0;font-weight:400">Refresh</button></h2>
+    <div class="card-body">
+      <div class="port-list" id="portList"><div class="empty">Looking for serial ports…</div></div>
+      <div class="form-row">
+        <label class="switch"><input type="checkbox" id="showAllPorts"><span class="track"></span><span>Show non-USB ports</span></label>
+      </div>
+      <div class="form-row">
+        <label for="baudSel">Baud rate</label>
+        <select id="baudSel">
+          <option value="1000000" selected>1 000 000 (factory default)</option>
+          <option value="500000">500 000</option>
+          <option value="250000">250 000</option>
+          <option value="128000">128 000</option>
+          <option value="115200">115 200</option>
+          <option value="76800">76 800</option>
+          <option value="57600">57 600</option>
+          <option value="38400">38 400</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="btn primary" id="connectBtn" disabled>Connect</button>
+      </div>
+      <div class="err" id="connectErr"></div>
+      <p class="hint">The Bus Servo Adapter (A) shows up as a USB serial device with a WCH CH34x chip
+        (Linux: <code>/dev/ttyACM*</code> or <code>/dev/ttyUSB*</code>, macOS: <code>/dev/cu.*</code>).
+        Set its jumper to USB mode and power the servos through its DC input.</p>
+    </div>
+  </section>
+
+  <section class="card" id="scanView" hidden>
+    <h2>Find servos on <span id="scanBoard" style="text-transform:none;letter-spacing:0;font-family:var(--mono)"></span></h2>
+    <div class="card-body">
+      <div class="form-row" style="margin-top:0">
+        <label>IDs from</label><input type="number" id="scanFirst" min="0" max="253" value="0">
+        <label>to</label><input type="number" id="scanLast" min="0" max="253" value="253">
+        <button class="btn" id="quickRange">0–20</button>
+        <button class="btn" id="fullRange">0–253</button>
+        <span class="spacer"></span>
+        <button class="btn primary" id="scanBtn">Scan</button>
+        <button class="btn" id="cancelScanBtn" hidden>Cancel</button>
+      </div>
+      <div class="progress"><div class="bar" id="scanBar"></div></div>
+      <div class="hint" id="scanText" style="margin-top:6px">Each ID takes about 15 ms; a full scan takes about 4 s.</div>
+      <div class="found" id="scanFound"></div>
+      <div class="err" id="scanErr"></div>
+      <div class="form-row">
+        <button class="btn" id="backToBoard">← Change board</button>
+        <span class="spacer"></span>
+        <button class="btn primary" id="openConsole" hidden>Open console →</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="layout" id="consoleView" hidden>
   <aside>
     <div class="servo-list" id="servoList"><div class="empty">No servos yet</div></div>
   </aside>
@@ -304,7 +395,7 @@ const state = {
 function connect() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
   state.ws = ws;
-  ws.onopen = () => setConn(true);
+  ws.onopen = () => { setConn(true); send("ports").catch(() => {}); };
   ws.onclose = () => {
     setConn(false);
     for (const p of state.pending.values()) p.reject(new Error("disconnected"));
@@ -342,7 +433,9 @@ async function cmd(type, payload = {}, msg) {
 
 function onMessage(m) {
   switch (m.type) {
-    case "servos": setServos(m.ids || []); break;
+    case "state": onState(m); break;
+    case "ports": state.portsMsg = m; renderPorts(); break;
+    case "scanProgress": onScanProgress(m); break;
     case "feedback": onFeedback(m); break;
     case "config": onConfig(m); break;
     case "log": log(m.message, m.level); break;
@@ -356,6 +449,7 @@ function onMessage(m) {
 
 // ---------------------------------------------------------------- servo list
 function setServos(ids) {
+  if (ids.length === state.ids.length && ids.every((id, i) => id === state.ids[i])) return;
   state.ids = ids;
   if (!ids.includes(state.selected)) state.selected = ids.length ? ids[0] : null;
   renderList();
@@ -692,11 +786,137 @@ $("setIdBtn").onclick = async () => {
   if (await cmd("setid", { newId }, `ID ${old} → ${newId}`)) { state.hist[newId] = state.hist[old]; selectServo(newId); }
 };
 $("cfgBtn").onclick = () => loadConfig(false);
-$("scanBtn").onclick = async () => {
-  $("scanBtn").disabled = true;
-  try { await send("scan"); } catch (e) { log(e.message, "error"); }
-  $("scanBtn").disabled = false;
+
+// ---------------------------------------------------------------- board & scan steps
+state.server = { connected: false, scanning: false, scanned: false, ids: [] };
+state.wantScan = false;      // user asked to (re)scan from the console
+state.selectedPort = null;
+
+function onState(m) {
+  const prev = state.server;
+  state.server = m;
+  if (prev.scanning && !m.scanning && m.ids.length) state.wantScan = false; // scan finished with results
+  if (!m.connected) state.wantScan = false;
+  if (!m.scanning) $("scanBar").style.width = m.scanned ? "100%" : "0";
+  setServos(m.ids);
+  renderView();
+}
+
+function currentView() {
+  const s = state.server;
+  if (!s.connected) return "connect";
+  if (s.scanning || state.wantScan || !s.scanned || !s.ids.length) return "scan";
+  return "console";
+}
+
+function renderView() {
+  const v = currentView(), s = state.server;
+  $("wizard").hidden = v === "console";
+  $("connectView").hidden = v !== "connect";
+  $("scanView").hidden = v !== "scan";
+  $("consoleView").hidden = v !== "console";
+  const steps = { connect: 1, scan: 2, console: 3 }[v];
+  for (let i = 1; i <= 3; i++) $("step" + i).className = "step" + (i === steps ? " cur" : i < steps ? " done" : "");
+
+  $("boardPill").hidden = !s.connected;
+  $("boardName").textContent = s.port === "sim" ? "simulator" : s.port;
+  $("rate").hidden = v !== "console";
+  $("toScanBtn").hidden = v !== "console";
+  $("toBoardBtn").hidden = !s.connected;
+
+  $("scanBoard").textContent = s.port === "sim" ? "simulator" : s.port || "";
+  $("scanBtn").hidden = s.scanning;
+  $("cancelScanBtn").hidden = !s.scanning;
+  ["scanFirst", "scanLast", "quickRange", "fullRange", "backToBoard"].forEach((id) => ($(id).disabled = s.scanning));
+  $("openConsole").hidden = s.scanning || !s.scanned || !s.ids.length;
+  if (!s.scanning) {
+    $("scanFound").innerHTML = s.ids.map((id) => `<span class="chip">ID ${id}</span>`).join("");
+    if (s.scanned) $("scanText").textContent = s.ids.length
+      ? `Found ${s.ids.length} servo(s).`
+      : "No servos answered. Check servo power, wiring, the adapter jumper and the baud rate.";
+  }
+  if (v === "console") requestAnimationFrame(drawChart);
+}
+
+function renderPorts() {
+  const m = state.portsMsg;
+  if (!m) return;
+  const showAll = $("showAllPorts").checked;
+  const ports = m.ports.filter((p) => showAll || p.usb);
+  const rows = ports.map((p) => ({ name: p.name, desc: p.description || "serial port", likely: p.likely }));
+  rows.push({ name: "sim", label: "Simulator", desc: m.sim, sim: true });
+  if (!rows.some((r) => r.name === state.selectedPort)) {
+    const best = rows.find((r) => r.likely) || (ports.length === 1 ? rows[0] : null);
+    state.selectedPort = best ? best.name : null;
+  }
+  const list = $("portList");
+  list.innerHTML = "";
+  if (!ports.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = m.ports.length ? "No USB serial ports. Enable “Show non-USB ports” to see all." : "No serial ports found. Plug in the driver board and press Refresh.";
+    list.appendChild(e);
+  }
+  for (const r of rows) {
+    const row = document.createElement("label");
+    row.className = "port-row" + (r.name === state.selectedPort ? " sel" : "");
+    const badge = r.likely ? '<span class="badge likely">likely driver board</span>' : r.sim ? '<span class="badge simb">no hardware</span>' : "";
+    row.innerHTML = `<input type="radio" name="port"><div><div class="name"></div><div class="desc"></div></div>${badge}`;
+    row.querySelector("input").checked = r.name === state.selectedPort;
+    row.querySelector(".name").textContent = r.label || r.name;
+    row.querySelector(".desc").textContent = r.desc;
+    row.onclick = () => { state.selectedPort = r.name; renderPorts(); };
+    row.ondblclick = () => { state.selectedPort = r.name; connectBoard(); };
+    list.appendChild(row);
+  }
+  $("connectBtn").disabled = !state.selectedPort;
+}
+
+async function connectBoard() {
+  if (!state.selectedPort) return;
+  $("connectErr").textContent = "";
+  $("connectBtn").disabled = true;
+  $("connectBtn").textContent = "Connecting…";
+  try {
+    await send("connect", { port: state.selectedPort, baud: Number($("baudSel").value) });
+    startScan(); // go straight to scanning the new board
+  } catch (e) {
+    $("connectErr").textContent = e.message;
+  }
+  $("connectBtn").textContent = "Connect";
+  $("connectBtn").disabled = !state.selectedPort;
+}
+
+function onScanProgress(m) {
+  $("scanBar").style.width = `${(100 * m.done / m.total).toFixed(1)}%`;
+  $("scanText").textContent = `Probing ID ${m.current} (${m.done}/${m.total})…`;
+  $("scanFound").innerHTML = m.found.map((id) => `<span class="chip">ID ${id}</span>`).join("");
+}
+
+async function startScan() {
+  $("scanErr").textContent = "";
+  const first = Number($("scanFirst").value), last = Number($("scanLast").value);
+  if (!(first >= 0 && last <= 253 && first <= last)) { $("scanErr").textContent = "ID range must be within 0–253 and from ≤ to."; return; }
+  $("scanBar").style.width = "0";
+  $("scanFound").innerHTML = "";
+  try { await send("scan", { first, last }); } catch (e) { if (!/canceled/.test(e.message)) $("scanErr").textContent = e.message; }
+}
+
+$("refreshPorts").onclick = () => send("ports").catch((e) => ($("connectErr").textContent = e.message));
+$("showAllPorts").onchange = renderPorts;
+$("connectBtn").onclick = connectBoard;
+$("scanBtn").onclick = startScan;
+$("cancelScanBtn").onclick = () => send("cancelScan").catch(() => {});
+$("quickRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 20; };
+$("fullRange").onclick = () => { $("scanFirst").value = 0; $("scanLast").value = 253; };
+$("openConsole").onclick = () => { state.wantScan = false; renderView(); };
+$("toScanBtn").onclick = () => { state.wantScan = true; renderView(); };
+const toBoard = async () => {
+  await send("disconnect").catch(() => {});
+  send("ports").catch(() => {});
 };
+$("toBoardBtn").onclick = toBoard;
+$("backToBoard").onclick = toBoard;
 
 // ---------------------------------------------------------------- log
 function log(msg, level = "info") {
