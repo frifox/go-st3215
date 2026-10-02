@@ -553,7 +553,7 @@ type request struct {
 	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
-	Degrees  float64    `json:"degrees"` // for "positionAs": what the current position should read
+	Degrees  float64    `json:"degrees"` // "positionAs": what the current position should read; "zeroAt": the angle (as shown) that becomes 0°
 	// Groups: Group targets a command at a group; the rest is for "groupSave".
 	Group        string  `json:"group"`
 	Members      []int   `json:"members"`
@@ -770,7 +770,7 @@ func onOff(on bool) string {
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
 	"multiturn": true, "torqueLimit": true, "calibrate": true, "write": true, "tune": true,
-	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
+	"mirror": true, "setid": true, "servoEdit": true, "positionAs": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
 func (s *server) afterChange(c *client, req request) {
@@ -1074,6 +1074,23 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 			return err
 		}
 		s.logf("info", "servo %d: current position now reads %.1f° (offset saved on the servo)", req.ID, float64(steps)*st3215.DegreesPerStep)
+		return nil
+	case "zeroAt":
+		// The angle is as the console shows it, i.e. after any virtual 0°;
+		// the servo's own zero replaces the virtual one, so fold it in and clear it.
+		vz := s.cfg.get(req.ID).Zero
+		d := math.Mod(math.Mod(req.Degrees+vz, 360)+360, 360)
+		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
+		if err := sv.SetZeroAt(steps); err != nil {
+			return err
+		}
+		if vz != 0 {
+			if err := s.cfg.update(req.ID, func(c *servoConfig) { c.Zero = 0 }); err != nil {
+				return err
+			}
+			s.broadcastState()
+		}
+		s.logf("info", "servo %d: the %.1f° mark is now 0° (offset saved on the servo)", req.ID, req.Degrees)
 		return nil
 	case "setid":
 		if slices.Contains(s.servoIDs(), req.NewID) {

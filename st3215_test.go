@@ -478,6 +478,7 @@ func TestSetPositionAs(t *testing.T) {
 		putU16(m[RegPositionOffset.Addr:], encodeSignMag(85, 11))
 		putU16(m[RegPresentPosition.Addr:], 1564) // physical reported
 		putU16(m[RegGoalPosition.Addr:], 1564)    // holding here
+		m[RegTorqueEnable.Addr] = 1
 		if err := b.Servo(1).SetPositionAs(0); err != nil {
 			t.Fatal(err)
 		}
@@ -492,5 +493,54 @@ func TestSetPositionAs(t *testing.T) {
 		if CircularDiff(goal+off, raw) != 0 {
 			t.Fatalf("mirrored=%v: goal %d no longer at the arm (raw %d)", mirrored, goal, raw)
 		}
+	}
+}
+
+func TestSetZeroAt(t *testing.T) {
+	for _, mirrored := range []bool{false, true} {
+		b, p := newTestBus(t, 1)
+		b.SetMirrored(1, mirrored)
+		m := p.servos[1].mem[:]
+		putU16(m[RegPositionOffset.Addr:], encodeSignMag(85, 11))
+		putU16(m[RegGoalPosition.Addr:], 1564)
+		m[RegTorqueEnable.Addr] = 1                        // holding: the goal must follow
+		if err := b.Servo(1).SetZeroAt(3072); err != nil { // 270° becomes 0°
+			t.Fatal(err)
+		}
+		off := RegPositionOffset.decode(m[RegPositionOffset.Addr:])
+		// Physical readings drop by 3072 (rise mirrored), modulo a turn.
+		want := 85 + 3072
+		if mirrored {
+			want = 85 - 3072
+		}
+		if CircularDiff(off, want) != 0 {
+			t.Fatalf("mirrored=%v: offset %d, want ≡ %d", mirrored, off, want)
+		}
+		goal := RegGoalPosition.decode(m[RegGoalPosition.Addr:])
+		if CircularDiff(goal+off, 1564+85) != 0 { // still the same raw spot
+			t.Fatalf("mirrored=%v: goal %d moved", mirrored, goal)
+		}
+	}
+}
+
+// With torque off the goal must not be written: on the ST3215 a goal write
+// switches torque on and the arm would drive to a stale goal.
+func TestSetZeroAtTorqueOffLeavesGoal(t *testing.T) {
+	b, p := newTestBus(t, 1)
+	m := p.servos[1].mem[:]
+	putU16(m[RegPositionOffset.Addr:], encodeSignMag(85, 11))
+	putU16(m[RegGoalPosition.Addr:], 0) // stale
+	m[RegTorqueEnable.Addr] = 0
+	n := len(p.written)
+	if err := b.Servo(1).SetZeroAt(3072); err != nil {
+		t.Fatal(err)
+	}
+	for _, pkt := range p.written[n:] {
+		if pkt[4] == InstWrite && pkt[5] == RegGoalPosition.Addr {
+			t.Fatal("goal written while torque was off")
+		}
+	}
+	if physGoal(p, 1) != 0 {
+		t.Fatal("goal changed")
 	}
 }

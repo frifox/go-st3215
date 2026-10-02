@@ -483,22 +483,47 @@ func (s *Servo) CalibrateMiddle() error {
 	})
 }
 
-// SetPositionAs makes the current position read pos (steps, 0..4095,
-// logical) from now on, by changing PositionOffset (persisted). This moves
-// the servo's own zero, e.g. pos = 0 makes "here" 0°; CalibrateMiddle is
-// SetPositionAs(2048). The goal is shifted by the same amount so a servo
-// holding torque doesn't move. In single-turn mode this also moves the
-// 0/4095 seam the servo can't cross to the new zero.
+// SetZeroAt makes the position that currently reads `at` (steps, logical)
+// read 0 from now on: every reading shifts by -at. It changes PositionOffset
+// (persisted), i.e. the servo's own zero, wherever the arm is. For example
+// SetZeroAt(3072) turns the 270° mark into 0° and straight up (0°) into 90°.
+// If the servo holds torque its goal is shifted too, so it doesn't move; with
+// torque off the goal isn't touched (writing one would switch torque on). In
+// single-turn mode the 0/4095 seam the servo can't cross moves with it.
 //
 // Verified on hardware: reported position = raw position - PositionOffset.
-// The offset range is ±2047 steps, so one position (exactly half a turn
-// away) can only be reached to within one step.
+// The offset range is ±2047 steps, so a shift that lands exactly half a turn
+// away is one step short.
+func (s *Servo) SetZeroAt(at int) error {
+	// Logical readings shift by -at; physical ones by -at, or +at mirrored.
+	shift := at
+	if s.Mirrored() {
+		shift = -at
+	}
+	return s.shiftOffset(shift)
+}
+
+// SetPositionAs makes the current position read pos (steps, logical), by the
+// same mechanism as SetZeroAt. CalibrateMiddle is SetPositionAs(2048).
 func (s *Servo) SetPositionAs(pos int) error {
+	cur, err := s.Position()
+	if err != nil {
+		return err
+	}
+	return s.SetZeroAt(cur - pos)
+}
+
+// shiftOffset adds delta (physical steps) to PositionOffset, so physical
+// readings drop by delta. If the servo is holding torque, its goal moves by
+// the same amount so it stays put. With torque off the goal is left alone:
+// writing a goal switches torque on (seen on hardware), which would drive
+// the arm to a stale goal.
+func (s *Servo) shiftOffset(delta int) error {
 	off, err := s.Read(RegPositionOffset)
 	if err != nil {
 		return err
 	}
-	cur, err := s.Read(RegPresentPosition) // physical, within one turn
+	holding, err := s.TorqueEnabled()
 	if err != nil {
 		return err
 	}
@@ -510,18 +535,20 @@ func (s *Servo) SetPositionAs(pos int) error {
 	if err != nil {
 		return err
 	}
-	want := (mirrorPos(s.Mirrored(), pos)%StepsPerRev + StepsPerRev) % StepsPerRev // physical
-	newOff := CircularDiff(cur+off, want)                                          // raw - wanted reading
+	newOff := CircularDiff(off+delta, 0) // keep within one turn
 	if newOff == -StepsPerRev/2 {
 		newOff = StepsPerRev/2 - 1 // -2048 isn't representable; one step off
 	}
-	delta := newOff - off
-	newGoal := goal - delta
+	applied := newOff - off
+	newGoal := goal - applied
 	if lo != 0 || hi != 0 { // single-turn goals live within one turn
 		newGoal = (newGoal%StepsPerRev + StepsPerRev) % StepsPerRev
 	}
 	if err := s.Write(RegPositionOffset, newOff); err != nil {
 		return err
+	}
+	if !holding {
+		return nil
 	}
 	_, err = s.bus.Write(s.id, RegGoalPosition.Addr, mustEncode(RegGoalPosition, newGoal))
 	return err
