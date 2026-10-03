@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/gosts"
 )
 
 // plant is a crude servo + load: inertia, friction, and a controller shaped
@@ -71,9 +71,9 @@ func (f *plant) Read() ([]Reading, error) {
 	}
 	f.now = f.now.Add(5 * time.Millisecond)
 	f.reads++
-	fb := st3215.Feedback{Position: int(math.Round(f.pos)), Moving: math.Abs(f.vel) > 5, Load: 0, Current: math.Abs(f.vel) / 5}
+	fb := gosts.Feedback{Position: int(math.Round(f.pos)), Moving: math.Abs(f.vel) > 5, Load: 0, Current: math.Abs(f.vel) / 5}
 	if f.failAt > 0 && f.reads > f.failAt {
-		fb.Status = st3215.StatusOverload
+		fb.Status = gosts.StatusOverload
 	}
 	fb.Temperature = 32
 	if f.glitchEvery > 0 && f.reads%f.glitchEvery == 0 {

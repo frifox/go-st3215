@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/servo"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/board"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/servo-ctl/servo"
+	"github.com/frifox/gosts/cmd/servo-ctl/web"
 )
 
 // app ties servo-ctl together: it builds the web server, the driver board and
@@ -102,7 +102,7 @@ func (a *app) run(ctx context.Context, addr, port string, baud int) error {
 		if err := a.board.Connect(port, baud); err != nil {
 			return err
 		}
-		go a.board.Scan(ctx, 0, st3215.MaxID)
+		go a.board.Scan(ctx, 0, gosts.MaxID)
 	}
 	defer func() {
 		a.stopAutotune()

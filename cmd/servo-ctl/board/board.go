@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	servosim "github.com/frifox/go-st3215/cmd/servo-ctl/servo-sim"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	servosim "github.com/frifox/gosts/cmd/servo-ctl/servo-sim"
 	"go.bug.st/serial/enumerator"
 )
 
@@ -30,7 +30,7 @@ type Board struct {
 
 	// busMu guards bus: users hold it for reading, Connect/Disconnect swap it.
 	busMu sync.RWMutex
-	bus   *st3215.Bus
+	bus   *gosts.Bus
 
 	mu         sync.Mutex
 	port       string
@@ -75,7 +75,7 @@ func (b *Board) SimDescription() string {
 }
 
 // WithBus runs f with the connected bus, or fails if there is none.
-func (b *Board) WithBus(f func(*st3215.Bus) error) error {
+func (b *Board) WithBus(f func(*gosts.Bus) error) error {
 	b.busMu.RLock()
 	defer b.busMu.RUnlock()
 	if b.bus == nil {
@@ -144,14 +144,14 @@ func (b *Board) Connect(port string, baud int) error {
 	}
 	b.Disconnect()
 	if baud <= 0 {
-		baud = st3215.DefaultBaudRate
+		baud = gosts.DefaultBaudRate
 	}
-	var bus *st3215.Bus
+	var bus *gosts.Bus
 	var err error
 	if port == SimPort {
-		bus, err = st3215.NewBus(servosim.NewPort(b.simIDs...))
+		bus, err = gosts.NewBus(servosim.NewPort(b.simIDs...))
 	} else {
-		bus, err = st3215.Open(port, baud)
+		bus, err = gosts.Open(port, baud)
 	}
 	if err != nil {
 		return err
@@ -159,7 +159,7 @@ func (b *Board) Connect(port string, baud int) error {
 	for id, sc := range b.cfg.All() {
 		bus.SetMirrored(id, sc.Mirrored)
 		if len(sc.Range) == 2 {
-			bus.SetRange(id, st3215.Range{Lo: sc.Range[0], Hi: sc.Range[1]})
+			bus.SetRange(id, gosts.Range{Lo: sc.Range[0], Hi: sc.Range[1]})
 		}
 	}
 	b.busMu.Lock()
@@ -218,7 +218,7 @@ func (b *Board) Scan(ctx context.Context, first, last uint8) error {
 
 	total := int(last) - int(first) + 1
 	var found []uint8
-	err := b.WithBus(func(bus *st3215.Bus) error {
+	err := b.WithBus(func(bus *gosts.Bus) error {
 		_, err := bus.ScanRange(ctx, first, last, 15*time.Millisecond, func(id uint8, ok bool) {
 			if ok {
 				found = append(found, id)

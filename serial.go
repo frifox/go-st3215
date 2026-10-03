@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ func Open(device string, baud int, opts ...Option) (*Bus, error) {
 		StopBits: serial.OneStopBit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("st3215: open %s: %w", device, err)
+		return nil, fmt.Errorf("gosts: open %s: %w", device, err)
 	}
 	b, err := NewBus(p, opts...)
 	if err != nil {

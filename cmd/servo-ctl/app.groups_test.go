@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 func TestGroupDefaultName(t *testing.T) {

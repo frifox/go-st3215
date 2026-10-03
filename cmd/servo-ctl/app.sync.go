@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/servo-ctl/web"
 )
 
 // Keeping several browser windows in sync
@@ -32,7 +32,7 @@ func changeNote(req internal.Request) string {
 	case "pwm":
 		return fmt.Sprintf("pwm %d", req.Duty)
 	case "mode":
-		return fmt.Sprintf("mode %s", st3215.Mode(req.Mode))
+		return fmt.Sprintf("mode %s", gosts.Mode(req.Mode))
 	case "multiturn":
 		return fmt.Sprintf("multi-turn %s", internal.OnOff(req.On))
 	case "torqueLimit":
@@ -119,7 +119,7 @@ func (a *app) scheduleRefresh(id uint8, origin int) {
 		origin := p.origin
 		a.mu.Unlock()
 		var msg internal.ConfigMsg
-		err := a.board.WithBus(func(bus *st3215.Bus) error {
+		err := a.board.WithBus(func(bus *gosts.Bus) error {
 			var err error
 			msg, err = a.ctl.ConfigMsg(bus, id)
 			return err

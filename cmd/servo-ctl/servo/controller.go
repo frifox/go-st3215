@@ -9,8 +9,8 @@ import (
 	"math"
 	"sync"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // Controller runs servo commands. It keeps what isn't stored on the servos:
@@ -31,7 +31,7 @@ func New(cfg *internal.Config, n internal.Notifier) *Controller {
 
 // Exec runs a command on one servo (req.ID), which the caller has checked is
 // on the bus.
-func (c *Controller) Exec(bus *st3215.Bus, req internal.Request) error {
+func (c *Controller) Exec(bus *gosts.Bus, req internal.Request) error {
 	sv := bus.Servo(req.ID)
 	switch req.Type {
 	case "torque":
@@ -47,7 +47,7 @@ func (c *Controller) Exec(bus *st3215.Bus, req internal.Request) error {
 	case "pwm":
 		return sv.SetPWM(req.Duty)
 	case "mode":
-		return sv.SetMode(st3215.Mode(req.Mode))
+		return sv.SetMode(gosts.Mode(req.Mode))
 	case "mirror":
 		bus.SetMirrored(req.ID, req.On)
 		err := c.cfg.Update(req.ID, func(sc *internal.ServoConfig) { sc.Mirrored = req.On })
@@ -99,7 +99,7 @@ func (c *Controller) Exec(bus *st3215.Bus, req internal.Request) error {
 		// own zero replaces a virtual one, so that is cleared.
 		vz := c.cfg.Get(req.ID).Zero
 		d := math.Mod(math.Mod(req.Degrees, 360)+360, 360)
-		steps := int(math.Round(d/st3215.DegreesPerStep)) % st3215.StepsPerRev
+		steps := int(math.Round(d/gosts.DegreesPerStep)) % gosts.StepsPerRev
 		if err := sv.SetZero(steps); err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func (c *Controller) Exec(bus *st3215.Bus, req internal.Request) error {
 		c.n.Logf("info", "servo %d: 0° is now at the encoder's %.1f° mark (offset saved on the servo)", req.ID, d)
 		return nil
 	case "write":
-		reg, ok := st3215.RegisterByName(req.Register)
+		reg, ok := gosts.RegisterByName(req.Register)
 		if !ok {
 			return fmt.Errorf("unknown register %q", req.Register)
 		}
@@ -124,7 +124,7 @@ func (c *Controller) Exec(bus *st3215.Bus, req internal.Request) error {
 	case "tune":
 		before := map[string]int{} // for Try: the values to go back to
 		for _, rv := range req.Values {
-			reg, ok := st3215.RegisterByName(rv.Register)
+			reg, ok := gosts.RegisterByName(rv.Register)
 			if !ok {
 				return fmt.Errorf("unknown register %q", rv.Register)
 			}

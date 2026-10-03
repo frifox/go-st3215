@@ -35,7 +35,7 @@ func (c ServoConfig) empty() bool {
 	return c.Name == "" && !c.Mirrored && !c.Signed && c.Color == "" && c.Zero == 0 && c.DialUp == 0 && len(c.Range) == 0
 }
 
-// GroupConfig is a set of servos driven as one (see st3215.Group).
+// GroupConfig is a set of servos driven as one (see gosts.Group).
 type GroupConfig struct {
 	Name    string  `toml:"Name"`
 	Members []uint8 `toml:"Members"` // leader first

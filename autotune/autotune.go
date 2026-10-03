@@ -18,7 +18,7 @@ import (
 	"math"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/gosts"
 )
 
 // Params are the settings the tuner varies.
@@ -450,7 +450,7 @@ func (r *run) move(ctx context.Context, from, target int, t0 time.Time) (Metrics
 			if f.Err != nil {
 				return m, trace, fmt.Errorf("%w: servo %d: %v", ErrAborted, f.ID, f.Err)
 			}
-			if bad := f.Status & (st3215.StatusOverload | st3215.StatusCurrent | st3215.StatusTemperature | st3215.StatusVoltage); bad != 0 {
+			if bad := f.Status & (gosts.StatusOverload | gosts.StatusCurrent | gosts.StatusTemperature | gosts.StatusVoltage); bad != 0 {
 				return m, trace, fmt.Errorf("%w: servo %d reports %s", ErrAborted, f.ID, bad)
 			}
 			// Limits must hold for a while: single bad samples happen at

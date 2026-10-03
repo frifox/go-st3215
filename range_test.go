@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import "testing"
 

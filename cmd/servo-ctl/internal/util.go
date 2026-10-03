@@ -1,6 +1,6 @@
 package internal
 
-import st3215 "github.com/frifox/go-st3215"
+import "github.com/frifox/gosts"
 
 // Notifier is how the servo-ctl packages report to the browser windows.
 type Notifier interface {
@@ -40,4 +40,4 @@ func Abs(v int) int {
 }
 
 // WrapSteps maps a position into one turn, 0..4095.
-func WrapSteps(p int) int { return (p%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev }
+func WrapSteps(p int) int { return (p%gosts.StepsPerRev + gosts.StepsPerRev) % gosts.StepsPerRev }

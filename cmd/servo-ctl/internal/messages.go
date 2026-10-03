@@ -1,8 +1,8 @@
 package internal
 
 import (
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/autotune"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/autotune"
 )
 
 // Messages exchanged with the browser over the WebSocket.
@@ -82,7 +82,7 @@ type ConfigMsg struct {
 	Type      string         `json:"type"`
 	ID        uint8          `json:"id"`
 	Origin    int            `json:"origin"` // client whose change triggered this; 0 = plain Request, -1 = several
-	Config    st3215.Config  `json:"config"`
+	Config    gosts.Config   `json:"config"`
 	Registers []RegisterInfo `json:"registers"`
 	Tried     map[string]int `json:"tried"` // tuning values tried but not saved
 	Saved     map[string]int `json:"saved"` // for each tried value, the value saved on the servo
@@ -147,13 +147,13 @@ type PortInfo struct {
 
 // ServoState is one servo's telemetry in a FeedbackMsg.
 type ServoState struct {
-	st3215.Feedback
+	gosts.Feedback
 	StatusText string `json:"statusText"`
 	Error      string `json:"error,omitempty"`
 }
 
 // ToState turns a feedback read into a ServoState.
-func ToState(f st3215.Feedback, err error) ServoState {
+func ToState(f gosts.Feedback, err error) ServoState {
 	st := ServoState{Feedback: f, StatusText: f.Status.String()}
 	if err != nil {
 		st.Error = err.Error()

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/gosts"
 )
 
-// Port implements st3215.Port with simulated servos. It speaks the real wire
+// Port implements gosts.Port with simulated servos. It speaks the real wire
 // protocol and models motion roughly (constant speed, no inertia).
 type Port struct {
 	mu      sync.Mutex
@@ -130,7 +130,7 @@ func (p *Port) handle(pkt []byte) {
 	for _, s := range p.servos {
 		s.step(now)
 	}
-	if inst == st3215.InstSyncRead {
+	if inst == gosts.InstSyncRead {
 		addr, n := int(params[0]), int(params[1])
 		for _, want := range params[2:] {
 			for _, s := range p.servos {
@@ -142,42 +142,42 @@ func (p *Port) handle(pkt []byte) {
 		return
 	}
 	for _, s := range p.servos {
-		if id != st3215.BroadcastID && s.mem[5] != id {
+		if id != gosts.BroadcastID && s.mem[5] != id {
 			continue
 		}
-		ack := id != st3215.BroadcastID
+		ack := id != gosts.BroadcastID
 		switch inst {
-		case st3215.InstPing:
+		case gosts.InstPing:
 			p.reply(s, nil)
-		case st3215.InstRead:
+		case gosts.InstRead:
 			addr, n := int(params[0]), int(params[1])
 			if addr+n <= len(s.mem) {
 				p.reply(s, append([]byte(nil), s.mem[addr:addr+n]...))
 			}
-		case st3215.InstWrite:
+		case gosts.InstWrite:
 			s.write(params)
 			if ack {
 				p.reply(s, nil)
 			}
-		case st3215.InstRegWrite:
+		case gosts.InstRegWrite:
 			s.regBuf = append([]byte(nil), params...)
 			s.mem[64] = 1
 			if ack {
 				p.reply(s, nil)
 			}
-		case st3215.InstAction:
+		case gosts.InstAction:
 			if s.regBuf != nil {
 				s.write(s.regBuf)
 				s.regBuf, s.mem[64] = nil, 0
 			}
-		case st3215.InstReset:
+		case gosts.InstReset:
 			// Assumed like the real servo: everything back to factory, ID 1,
 			// torque off; it answers under the new ID.
 			s.mem = factoryMem(1)
 			s.mem[56], s.mem[57] = 0, 0
 			s.regBuf = nil
 			p.reply(s, nil)
-		case st3215.InstSyncWrite:
+		case gosts.InstSyncWrite:
 			addr, l := params[0], int(params[1])
 			for i := 2; i+1+l <= len(params); i += l + 1 {
 				if params[i] == s.mem[5] {

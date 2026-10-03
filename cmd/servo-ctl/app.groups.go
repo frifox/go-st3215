@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // Groups: creating, editing and deleting them (their commands and fight
@@ -37,7 +37,7 @@ func (a *app) groupSave(req internal.Request) error {
 	}
 	members := make([]uint8, 0, len(req.Members))
 	for _, id := range req.Members {
-		if id < 0 || id > int(st3215.MaxID) {
+		if id < 0 || id > int(gosts.MaxID) {
 			return fmt.Errorf("invalid servo ID %d", id)
 		}
 		members = append(members, uint8(id))

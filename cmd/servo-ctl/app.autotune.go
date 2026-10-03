@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strconv"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/autotune"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/autotune"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // One auto-tune run at a time; progress is broadcast to every window.
@@ -26,11 +26,11 @@ type autotuneRun struct {
 // tunedNames are the registers autotune.Params maps to, in config/tried terms.
 func tunedValues(p autotune.Params) []internal.RegValue {
 	return []internal.RegValue{
-		{Register: st3215.RegPositionP.Name, Value: p.P},
-		{Register: st3215.RegPositionD.Name, Value: p.D},
-		{Register: st3215.RegMinStartForce.Name, Value: p.MinStart},
-		{Register: st3215.RegCWDeadZone.Name, Value: p.DeadZone},
-		{Register: st3215.RegCCWDeadZone.Name, Value: p.DeadZone},
+		{Register: gosts.RegPositionP.Name, Value: p.P},
+		{Register: gosts.RegPositionD.Name, Value: p.D},
+		{Register: gosts.RegMinStartForce.Name, Value: p.MinStart},
+		{Register: gosts.RegCWDeadZone.Name, Value: p.DeadZone},
+		{Register: gosts.RegCCWDeadZone.Name, Value: p.DeadZone},
 	}
 }
 
@@ -41,7 +41,7 @@ func (a *app) tuning(id uint8) bool {
 	return a.at != nil && a.at.cancel != nil && slices.Contains(a.at.members, id)
 }
 
-func (a *app) autotuneTarget(bus *st3215.Bus, req internal.Request) (autotune.Target, *autotuneRun, error) {
+func (a *app) autotuneTarget(bus *gosts.Bus, req internal.Request) (autotune.Target, *autotuneRun, error) {
 	found := a.board.IDs()
 	if req.Group != "" {
 		gc, ok := a.cfg.Group(req.Group)
@@ -69,7 +69,7 @@ func (a *app) autotuneTarget(bus *st3215.Bus, req internal.Request) (autotune.Ta
 
 // startAutotune runs in its own goroutine (it takes minutes).
 func (a *app) startAutotune(req internal.Request) error {
-	return a.board.WithBus(func(bus *st3215.Bus) error {
+	return a.board.WithBus(func(bus *gosts.Bus) error {
 		target, run, err := a.autotuneTarget(bus, req)
 		if err != nil {
 			return err
@@ -94,7 +94,7 @@ func (a *app) startAutotune(req internal.Request) error {
 		a.Logf("info", "auto-tune of %s started", run.label)
 
 		opt := autotune.Options{
-			Amplitude: int(req.Amplitude/st3215.DegreesPerStep + 0.5),
+			Amplitude: int(req.Amplitude/gosts.DegreesPerStep + 0.5),
 			Speed:     req.Speed,
 			Acc:       req.Acc,
 			Tolerance: req.Tolerance,
@@ -155,7 +155,7 @@ func (a *app) finishAutotune(save bool) error {
 		return errors.New("no finished auto-tune result")
 	}
 	res := *run.result
-	err := a.board.WithBus(func(bus *st3215.Bus) error {
+	err := a.board.WithBus(func(bus *gosts.Bus) error {
 		var errs []error
 		for _, id := range run.members {
 			sv := bus.Servo(id)
@@ -165,7 +165,7 @@ func (a *app) finishAutotune(save bool) error {
 				p, write = res.Best.Params, sv.Write
 			}
 			for _, rv := range tunedValues(p) {
-				reg, _ := st3215.RegisterByName(rv.Register)
+				reg, _ := gosts.RegisterByName(rv.Register)
 				if err := write(reg, rv.Value); err != nil {
 					errs = append(errs, fmt.Errorf("servo %d %s: %w", id, reg.Name, err))
 				}

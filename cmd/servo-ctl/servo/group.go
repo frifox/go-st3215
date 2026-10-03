@@ -4,16 +4,16 @@ import (
 	"errors"
 	"fmt"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // TuningRegisters are copied from a group's leader by "copyTuning".
-var TuningRegisters = []st3215.Register{
-	st3215.RegPositionP, st3215.RegPositionD, st3215.RegPositionI, st3215.RegMinStartForce,
-	st3215.RegCWDeadZone, st3215.RegCCWDeadZone, st3215.RegMaxTorque, st3215.RegOverloadTorque,
-	st3215.RegProtectionTime, st3215.RegProtectiveTorque, st3215.RegProtectionCurrent,
-	st3215.RegOverCurrentTime, st3215.RegSpeedP, st3215.RegSpeedI,
+var TuningRegisters = []gosts.Register{
+	gosts.RegPositionP, gosts.RegPositionD, gosts.RegPositionI, gosts.RegMinStartForce,
+	gosts.RegCWDeadZone, gosts.RegCCWDeadZone, gosts.RegMaxTorque, gosts.RegOverloadTorque,
+	gosts.RegProtectionTime, gosts.RegProtectiveTorque, gosts.RegProtectionCurrent,
+	gosts.RegOverCurrentTime, gosts.RegSpeedP, gosts.RegSpeedI,
 }
 
 // fightPolls is how many consecutive telemetry frames a fight must last
@@ -28,14 +28,14 @@ type fightState struct {
 
 // CheckGroups computes the health of every group from one telemetry frame
 // and applies fight protection. Called by the poll loop.
-func (c *Controller) CheckGroups(bus *st3215.Bus, states map[string]internal.ServoState) map[string]internal.GroupHealth {
+func (c *Controller) CheckGroups(bus *gosts.Bus, states map[string]internal.ServoState) map[string]internal.GroupHealth {
 	out := map[string]internal.GroupHealth{}
 	for key, g := range c.cfg.AllGroups() {
-		var fb st3215.GroupFeedback
-		fb.Members = map[uint8]st3215.FeedbackResult{}
+		var fb gosts.GroupFeedback
+		fb.Members = map[uint8]gosts.FeedbackResult{}
 		for _, id := range g.Members {
 			if st, ok := states[fmt.Sprint(id)]; ok && st.Error == "" {
-				fb.Members[id] = st3215.FeedbackResult{Feedback: st.Feedback}
+				fb.Members[id] = gosts.FeedbackResult{Feedback: st.Feedback}
 			}
 		}
 		h := internal.GroupHealth{Spread: fb.Spread(), Fighting: fb.Fighting(g.FightLoadLimit())}
@@ -101,7 +101,7 @@ func (c *Controller) ClearTrip(key string) {
 
 // GroupExec runs a command on all members of req.Group, which the caller
 // has checked are on the bus.
-func (c *Controller) GroupExec(bus *st3215.Bus, req internal.Request) error {
+func (c *Controller) GroupExec(bus *gosts.Bus, req internal.Request) error {
 	gc, ok := c.cfg.Group(req.Group)
 	if !ok {
 		return fmt.Errorf("unknown group %q", req.Group)
@@ -124,7 +124,7 @@ func (c *Controller) GroupExec(bus *st3215.Bus, req internal.Request) error {
 	case "pwm":
 		return g.SetPWM(req.Duty)
 	case "mode":
-		return g.SetMode(st3215.Mode(req.Mode))
+		return g.SetMode(gosts.Mode(req.Mode))
 	case "torqueLimit":
 		return g.SetTorqueLimit(req.Percent)
 	case "multiturn":

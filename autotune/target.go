@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/gosts"
 )
 
 // Reading is one member's telemetry sample.
 type Reading struct {
 	ID uint8
-	st3215.Feedback
+	gosts.Feedback
 	Err error
 }
 
@@ -31,21 +31,21 @@ type Target interface {
 	Now() time.Time
 }
 
-var tunedRegs = []st3215.Register{st3215.RegPositionP, st3215.RegPositionD, st3215.RegMinStartForce,
-	st3215.RegCWDeadZone, st3215.RegCCWDeadZone}
+var tunedRegs = []gosts.Register{gosts.RegPositionP, gosts.RegPositionD, gosts.RegMinStartForce,
+	gosts.RegCWDeadZone, gosts.RegCCWDeadZone}
 
 func values(p Params) []int { return []int{p.P, p.D, p.MinStart, p.DeadZone, p.DeadZone} }
 
-func readParams(s *st3215.Servo) (Params, error) {
+func readParams(s *gosts.Servo) (Params, error) {
 	mem, err := s.ReadMemory()
 	if err != nil {
 		return Params{}, err
 	}
-	return Params{P: st3215.RegPositionP.Value(mem), D: st3215.RegPositionD.Value(mem),
-		MinStart: st3215.RegMinStartForce.Value(mem), DeadZone: st3215.RegCWDeadZone.Value(mem)}, nil
+	return Params{P: gosts.RegPositionP.Value(mem), D: gosts.RegPositionD.Value(mem),
+		MinStart: gosts.RegMinStartForce.Value(mem), DeadZone: gosts.RegCWDeadZone.Value(mem)}, nil
 }
 
-func writeParams(s *st3215.Servo, p Params, save bool) error {
+func writeParams(s *gosts.Servo, p Params, save bool) error {
 	write := s.WriteTemporary
 	if save {
 		write = s.Write
@@ -68,16 +68,16 @@ func (u unwrapper) next(id uint8, reported int) int {
 	if !ok {
 		return reported
 	}
-	p := last + st3215.CircularDiff(reported, last)
+	p := last + gosts.CircularDiff(reported, last)
 	u[id] = p
 	return p
 }
 
 // ForServo tunes one servo.
-func ForServo(s *st3215.Servo) Target { return &servoTarget{s: s, u: unwrapper{}} }
+func ForServo(s *gosts.Servo) Target { return &servoTarget{s: s, u: unwrapper{}} }
 
 type servoTarget struct {
-	s *st3215.Servo
+	s *gosts.Servo
 	u unwrapper
 }
 
@@ -107,19 +107,19 @@ func (t *servoTarget) Read() ([]Reading, error) {
 // ForGroup tunes a group: every member gets the same values and moves with
 // the others, so coupled servos are never tuned against each other. Metrics
 // are the worst over all members.
-func ForGroup(g *st3215.Group) Target { return &groupTarget{g: g, u: unwrapper{}} }
+func ForGroup(g *gosts.Group) Target { return &groupTarget{g: g, u: unwrapper{}} }
 
 type groupTarget struct {
-	g *st3215.Group
+	g *gosts.Group
 	u unwrapper
 }
 
 func (t *groupTarget) Params() (Params, error) { return readParams(t.g.Leader()) }
 func (t *groupTarget) Apply(p Params) error {
-	return t.each(func(s *st3215.Servo) error { return writeParams(s, p, false) })
+	return t.each(func(s *gosts.Servo) error { return writeParams(s, p, false) })
 }
 func (t *groupTarget) Save(p Params) error {
-	return t.each(func(s *st3215.Servo) error { return writeParams(s, p, true) })
+	return t.each(func(s *gosts.Servo) error { return writeParams(s, p, true) })
 }
 
 // Position is the leader's absolute position; each member's sample tracking
@@ -172,7 +172,7 @@ func (t *groupTarget) Read() ([]Reading, error) {
 	return out, nil
 }
 
-func (t *groupTarget) each(f func(*st3215.Servo) error) error {
+func (t *groupTarget) each(f func(*gosts.Servo) error) error {
 	var errs []error
 	for _, id := range t.g.IDs() {
 		if err := f(t.g.Servo(id)); err != nil {

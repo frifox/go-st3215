@@ -1,6 +1,7 @@
-// Command servo-ctl is a web console for ST3215 servos built on the st3215
-// package: a WebSocket server that streams servo telemetry and accepts
-// control commands, plus a web page to set up, monitor and drive the servos.
+// Command servo-ctl is a web console for ST3215 servos built on the gosts
+// package (Go STServo): a WebSocket server that streams servo telemetry and
+// accepts control commands, plus a web page to set up, monitor and drive the
+// servos.
 //
 // Packages: web (HTTP and WebSocket, the page in web/dist), board (driver
 // board: ports, connection, scanning), servo (commands on the servo motors),
@@ -10,7 +11,7 @@
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
 //
-//	go install github.com/frifox/go-st3215/cmd/servo-ctl@latest
+//	go install github.com/frifox/gosts/cmd/servo-ctl@latest
 //
 //	servo-ctl                               # choose the port in the browser
 //	servo-ctl -port /dev/ttyACM0            # connect on startup (Linux)
@@ -32,9 +33,9 @@ import (
 	"strings"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/board"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // defaultConfigPath is servo-ctl/config.toml in the user's config directory
@@ -49,7 +50,7 @@ func defaultConfigPath() string {
 
 func main() {
 	port := flag.String("port", os.Getenv("ST3215_PORT"), "serial device to connect to on startup (optional)")
-	baud := flag.Int("baud", st3215.DefaultBaudRate, "bus baud rate used with -port")
+	baud := flag.Int("baud", gosts.DefaultBaudRate, "bus baud rate used with -port")
 	addr := flag.String("addr", "localhost:8080", "HTTP listen address")
 	sim := flag.String("sim", "", "connect to simulated servos with these IDs on startup, e.g. 1,2,3")
 	poll := flag.Duration("poll", 50*time.Millisecond, "telemetry polling interval")
@@ -85,7 +86,7 @@ func parseIDs(s string) ([]uint8, error) {
 	var ids []uint8
 	for _, f := range strings.Split(s, ",") {
 		v, err := strconv.Atoi(strings.TrimSpace(f))
-		if err != nil || v < 0 || v > int(st3215.MaxID) {
+		if err != nil || v < 0 || v > int(gosts.MaxID) {
 			return nil, fmt.Errorf("invalid servo ID %q", f)
 		}
 		ids = append(ids, uint8(v))

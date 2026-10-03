@@ -1,4 +1,4 @@
-module github.com/frifox/go-st3215
+module github.com/frifox/gosts
 
 go 1.24
 

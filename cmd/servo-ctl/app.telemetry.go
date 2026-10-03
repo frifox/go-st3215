@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
 )
 
 // pollLoop reads the found servos' telemetry every a.poll, checks the groups'
@@ -26,7 +26,7 @@ func (a *app) pollLoop(ctx context.Context) {
 		}
 		states := map[string]internal.ServoState{}
 		var health map[string]internal.GroupHealth
-		err := a.board.WithBus(func(bus *st3215.Bus) error {
+		err := a.board.WithBus(func(bus *gosts.Bus) error {
 			defer func() { health = a.ctl.CheckGroups(bus, states) }()
 			if a.noSync {
 				for _, id := range st.IDs {

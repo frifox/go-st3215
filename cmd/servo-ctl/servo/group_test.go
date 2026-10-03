@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	servosim "github.com/frifox/go-st3215/cmd/servo-ctl/servo-sim"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	servosim "github.com/frifox/gosts/cmd/servo-ctl/servo-sim"
 )
 
 type nopNotifier struct{}
@@ -29,13 +29,13 @@ func TestFightProtection(t *testing.T) {
 		t.Fatal("servo 2 must not join a second group")
 	}
 
-	bus, _ := st3215.NewBus(servosim.NewPort(1, 2))
+	bus, _ := gosts.NewBus(servosim.NewPort(1, 2))
 	bus.SyncTorque(true, 1, 2)
 	c := New(cfg, nopNotifier{})
 
 	fight := map[string]internal.ServoState{
-		"1": {Feedback: st3215.Feedback{Position: 1000, Load: 45}},
-		"2": {Feedback: st3215.Feedback{Position: 1030, Load: -40}},
+		"1": {Feedback: gosts.Feedback{Position: 1000, Load: 45}},
+		"2": {Feedback: gosts.Feedback{Position: 1030, Load: -40}},
 	}
 	for i := 1; i <= fightPolls; i++ {
 		h := c.CheckGroups(bus, fight)["pitch"]
@@ -51,7 +51,7 @@ func TestFightProtection(t *testing.T) {
 	}
 
 	// Stays tripped until torque is switched on again for the group.
-	calm := map[string]internal.ServoState{"1": {Feedback: st3215.Feedback{Position: 1000}}, "2": {Feedback: st3215.Feedback{Position: 1001}}}
+	calm := map[string]internal.ServoState{"1": {Feedback: gosts.Feedback{Position: 1000}}, "2": {Feedback: gosts.Feedback{Position: 1001}}}
 	if h := c.CheckGroups(bus, calm)["pitch"]; !h.Tripped || h.Fighting || h.Problem != "" {
 		t.Fatalf("calm: %+v", h)
 	}

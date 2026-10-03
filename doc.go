@@ -1,6 +1,6 @@
-// Package st3215 controls and monitors Waveshare ST3215 (Feetech STS3215)
-// serial bus servos through a Waveshare Bus Servo Adapter (A) or any other
-// half-duplex TTL adapter. It runs on Linux and macOS.
+// Package gosts (Go STServo) controls and monitors Waveshare ST3215 (Feetech
+// STS3215) serial bus servos through a Waveshare Bus Servo Adapter (A) or any
+// other half-duplex TTL adapter. It runs on Linux and macOS.
 //
 // The package has three layers:
 //
@@ -16,13 +16,13 @@
 //
 // Minimal example:
 //
-//	bus, err := st3215.Open("/dev/ttyACM0", st3215.DefaultBaudRate)
+//	bus, err := gosts.Open("/dev/ttyACM0", gosts.DefaultBaudRate)
 //	if err != nil { ... }
 //	defer bus.Close()
 //
 //	s := bus.Servo(1)
 //	s.EnableTorque(true)
-//	fb, err := s.MoveToAndWait(ctx, 2048, 1500, 50, st3215.WaitOptions{})
+//	fb, err := s.MoveToAndWait(ctx, 2048, 1500, 50, gosts.WaitOptions{})
 //	fmt.Println(fb.Position, fb.Voltage, fb.Temperature)
 //
 // Several servos can be moved simultaneously with Bus.SyncMove (one packet)
@@ -32,4 +32,4 @@
 // Units: positions are encoder steps (4096 per turn, 2048 = center),
 // speeds are step/s, acceleration is in 100 step/s². Feedback converts
 // voltage, current and load to V, mA and %.
-package st3215
+package gosts

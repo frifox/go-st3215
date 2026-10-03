@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import (
 	"fmt"
@@ -57,7 +57,7 @@ func (r Register) decode(b []byte) int {
 
 func (r Register) encode(v int) ([]byte, error) {
 	if v < r.Min || v > r.Max {
-		return nil, fmt.Errorf("st3215: %s value %d out of range [%d, %d]", r.Name, v, r.Min, r.Max)
+		return nil, fmt.Errorf("gosts: %s value %d out of range [%d, %d]", r.Name, v, r.Min, r.Max)
 	}
 	var raw uint16
 	if r.Signed() {

@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import (
 	"errors"
@@ -33,11 +33,11 @@ const maxPacketParams = 0xFF - 2
 
 var (
 	// ErrTimeout is returned when no (complete) reply arrives in time.
-	ErrTimeout = errors.New("st3215: timeout waiting for reply")
+	ErrTimeout = errors.New("gosts: timeout waiting for reply")
 	// ErrPacketTooLong is returned when a packet would exceed 255 bytes of payload.
-	ErrPacketTooLong = errors.New("st3215: packet too long")
+	ErrPacketTooLong = errors.New("gosts: packet too long")
 	// ErrBadReply is returned when a reply is well-formed but unexpected.
-	ErrBadReply = errors.New("st3215: unexpected reply")
+	ErrBadReply = errors.New("gosts: unexpected reply")
 )
 
 // checksum computes ~(sum of bytes) & 0xFF over ID, LEN, INST/ERR and params.

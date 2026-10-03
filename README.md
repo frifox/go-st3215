@@ -1,7 +1,8 @@
-# go-st3215
+# Go STServo
 
-Go package for controlling and monitoring **Waveshare ST3215** serial bus servos
-(Feetech STS3215 protocol) through the **Waveshare Bus Servo Adapter (A)**.
+Go package `gosts` (module `github.com/frifox/gosts`) for controlling and monitoring
+**Waveshare ST3215** serial bus servos (Feetech STS3215 protocol) through the
+**Waveshare Bus Servo Adapter (A)**.
 Works on Linux and macOS. The library's only dependency is `go.bug.st/serial`.
 
 ![servo-ctl web console controlling ST3215 servos](docs/screenshot.jpg)
@@ -9,9 +10,9 @@ Works on Linux and macOS. The library's only dependency is `go.bug.st/serial`.
 *[servo-ctl](#servo-ctl-web-console), the web console, driving ST3215 servos.*
 
 ```go
-import st3215 "github.com/frifox/go-st3215"
+import "github.com/frifox/gosts"
 
-bus, err := st3215.Open("/dev/ttyACM0", st3215.DefaultBaudRate) // 1 Mbps, factory default
+bus, err := gosts.Open("/dev/ttyACM0", gosts.DefaultBaudRate) // 1 Mbps, factory default
 if err != nil {
     log.Fatal(err)
 }
@@ -22,12 +23,12 @@ bus.SyncTorque(true, 1, 2)
 
 // Move both servos at the same time, then wait until each one arrives.
 bus.SyncMove(
-    st3215.Target{ID: 1, Position: st3215.DegreesToSteps(90), Speed: 1500, Acc: 50},
-    st3215.Target{ID: 2, Position: st3215.DegreesToSteps(200), Speed: 1500, Acc: 50},
+    gosts.Target{ID: 1, Position: gosts.DegreesToSteps(90), Speed: 1500, Acc: 50},
+    gosts.Target{ID: 2, Position: gosts.DegreesToSteps(200), Speed: 1500, Acc: 50},
 )
-opt := st3215.WaitOptions{FailOn: st3215.StatusOverload}
-pan.WaitForPosition(ctx, st3215.DegreesToSteps(90), opt)
-tilt.WaitForPosition(ctx, st3215.DegreesToSteps(200), opt)
+opt := gosts.WaitOptions{FailOn: gosts.StatusOverload}
+pan.WaitForPosition(ctx, gosts.DegreesToSteps(90), opt)
+tilt.WaitForPosition(ctx, gosts.DegreesToSteps(200), opt)
 
 // Read the status of both servos in one round trip.
 fb, _ := bus.SyncFeedback(1, 2)
@@ -67,11 +68,11 @@ When two servos drive one axis from opposite sides (facing each other), the same
 them in opposite directions. Mark one as mirrored and use the same logical values for both:
 
 ```go
-bus.SetMirrored(2, true) // or st3215.Open(dev, baud, st3215.WithMirrored(2))
+bus.SetMirrored(2, true) // or gosts.Open(dev, baud, gosts.WithMirrored(2))
 
 bus.SyncMove(
-    st3215.Target{ID: 1, Position: 1500, Speed: 1000, Acc: 30},
-    st3215.Target{ID: 2, Position: 1500, Speed: 1000, Acc: 30}, // physically 4096-1500
+    gosts.Target{ID: 1, Position: 1500, Speed: 1000, Acc: 30},
+    gosts.Target{ID: 2, Position: 1500, Speed: 1000, Acc: 30}, // physically 4096-1500
 )
 ```
 
@@ -96,7 +97,7 @@ pitch := bus.Group(1, 2)               // leader first
 pitch.Align(200, 10)                   // bring members to the leader's position
 pitch.EnableTorque(true)
 pitch.MoveTo(1500, 1000, 30)
-fb, _ := pitch.WaitForPosition(ctx, 1500, st3215.WaitOptions{})
+fb, _ := pitch.WaitForPosition(ctx, 1500, gosts.WaitOptions{})
 if fb.Spread() > 20 || fb.Fighting(30) { /* members disagree on a shared axis */ }
 ```
 
@@ -135,7 +136,7 @@ The page walks through three steps:
    editable view of the full memory table.
 
 ```bash
-go install github.com/frifox/go-st3215/cmd/servo-ctl@latest
+go install github.com/frifox/gosts/cmd/servo-ctl@latest
 
 servo-ctl                               # pick the board in the browser
 servo-ctl -port /dev/ttyACM0            # connect + scan on startup (Linux)

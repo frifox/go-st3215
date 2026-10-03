@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import (
 	"context"
@@ -64,7 +64,7 @@ func (s *Servo) Read(r Register) (int, error) {
 // wrapped in an unlock/lock sequence so they persist across power cycles.
 func (s *Servo) Write(r Register, v int) error {
 	if r.ReadOnly {
-		return fmt.Errorf("st3215: register %s is read-only", r.Name)
+		return fmt.Errorf("gosts: register %s is read-only", r.Name)
 	}
 	data, err := r.encode(v)
 	if err != nil {
@@ -87,7 +87,7 @@ func (s *Servo) Write(r Register, v int) error {
 // registers behave as with Write.
 func (s *Servo) WriteTemporary(r Register, v int) error {
 	if r.ReadOnly {
-		return fmt.Errorf("st3215: register %s is read-only", r.Name)
+		return fmt.Errorf("gosts: register %s is read-only", r.Name)
 	}
 	data, err := r.encode(v)
 	if err != nil {
@@ -370,7 +370,7 @@ func (s *Servo) Info() (Info, error) {
 // SetID changes the servo ID (persisted). The handle is updated to the new ID.
 func (s *Servo) SetID(newID uint8) error {
 	if newID > MaxID {
-		return fmt.Errorf("st3215: invalid ID %d", newID)
+		return fmt.Errorf("gosts: invalid ID %d", newID)
 	}
 	if err := s.UnlockEEPROM(); err != nil {
 		return err
@@ -381,7 +381,7 @@ func (s *Servo) SetID(newID uint8) error {
 		return err
 	}
 	if _, err := s.bus.Ping(newID); err != nil {
-		return fmt.Errorf("st3215: servo did not answer under new ID %d: %w", newID, err)
+		return fmt.Errorf("gosts: servo did not answer under new ID %d: %w", newID, err)
 	}
 	if s.Mirrored() {
 		s.bus.SetMirrored(s.id, false)
@@ -401,7 +401,7 @@ func (s *Servo) SetID(newID uint8) error {
 // new speed (this does not affect persistence of the baud rate itself).
 func (s *Servo) SetBaudRate(br BaudRate) error {
 	if br.BitsPerSecond() == 0 {
-		return fmt.Errorf("st3215: invalid baud rate index %d", br)
+		return fmt.Errorf("gosts: invalid baud rate index %d", br)
 	}
 	if err := s.UnlockEEPROM(); err != nil {
 		return err
@@ -427,7 +427,7 @@ func (s *Servo) Mode() (Mode, error) {
 func (s *Servo) SetAngleLimits(min, max int) error {
 	if min != 0 || max != 0 {
 		if min >= max {
-			return fmt.Errorf("st3215: min angle limit %d must be below max %d", min, max)
+			return fmt.Errorf("gosts: min angle limit %d must be below max %d", min, max)
 		}
 	}
 	min, max = mirrorLimits(s.Mirrored(), min, max)
@@ -437,7 +437,7 @@ func (s *Servo) SetAngleLimits(min, max int) error {
 func (s *Servo) setAngleLimitsRaw(min, max int) error {
 	if min != 0 || max != 0 {
 		if min >= max {
-			return fmt.Errorf("st3215: min angle limit %d must be below max %d", min, max)
+			return fmt.Errorf("gosts: min angle limit %d must be below max %d", min, max)
 		}
 	}
 	if _, err := RegMinAngleLimit.encode(min); err != nil {
@@ -676,7 +676,7 @@ func moveData(pos, speed int, acc uint8) ([]byte, error) {
 		return nil, err
 	}
 	if speed < 0 || speed > RegGoalSpeed.Max {
-		return nil, fmt.Errorf("st3215: speed %d out of range [0, %d]", speed, RegGoalSpeed.Max)
+		return nil, fmt.Errorf("gosts: speed %d out of range [0, %d]", speed, RegGoalSpeed.Max)
 	}
 	// acc, pos L/H, time L/H (0), speed L/H — the layout of WritePosEx.
 	b := make([]byte, 7)
@@ -792,7 +792,7 @@ func (s *Servo) AbsolutePosition() (int, error) {
 // the servo a whole turn the wrong way. Turn torque on where the servo is
 // (EnableTorque holds the goal, so write a goal first only if it is known),
 // or switch multi-turn off and on to start counting from the reading.
-var ErrTurnUnknown = errors.New("st3215: turn count unknown")
+var ErrTurnUnknown = errors.New("gosts: turn count unknown")
 
 // ShortestGoal returns the goal that reaches the angle of pos (taken modulo
 // one turn) the short way round from the present position, kept within
@@ -905,7 +905,7 @@ func mustEncode(r Register, v int) []byte {
 // Waiting
 
 // ErrFault is returned by wait helpers when the servo reports a fault.
-var ErrFault = errors.New("st3215: servo fault")
+var ErrFault = errors.New("gosts: servo fault")
 
 // WaitOptions tunes WaitForPosition / WaitStopped.
 type WaitOptions struct {

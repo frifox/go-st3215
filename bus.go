@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import (
 	"context"
@@ -68,7 +68,7 @@ func NewBus(p Port, opts ...Option) (*Bus, error) {
 		o(b)
 	}
 	if err := p.SetReadTimeout(b.timeout); err != nil {
-		return nil, fmt.Errorf("st3215: set read timeout: %w", err)
+		return nil, fmt.Errorf("gosts: set read timeout: %w", err)
 	}
 	return b, nil
 }
@@ -101,7 +101,7 @@ func (b *Bus) send(id, inst byte, params []byte) error {
 	for len(pkt) > 0 {
 		n, err := b.port.Write(pkt)
 		if err != nil {
-			return fmt.Errorf("st3215: write: %w", err)
+			return fmt.Errorf("gosts: write: %w", err)
 		}
 		pkt = pkt[n:]
 	}
@@ -131,7 +131,7 @@ func (b *Bus) recv(id uint8, nParams int) (reply, error) {
 		}
 		n, err := b.port.Read(b.tmp)
 		if err != nil {
-			return reply{}, fmt.Errorf("st3215: read: %w", err)
+			return reply{}, fmt.Errorf("gosts: read: %w", err)
 		}
 		b.rx = append(b.rx, b.tmp[:n]...)
 	}
@@ -156,7 +156,7 @@ func (b *Bus) transact(id, inst byte, params []byte, wantReply bool, nParams int
 		}
 		lastErr = err
 	}
-	return reply{}, fmt.Errorf("st3215: servo %d: %w", id, lastErr)
+	return reply{}, fmt.Errorf("gosts: servo %d: %w", id, lastErr)
 }
 
 func (b *Bus) expectAck(id uint8) bool { return id != BroadcastID && !b.noAck }
@@ -178,7 +178,7 @@ func (b *Bus) Identify() (uint8, error) {
 // Read reads n bytes of the memory table starting at addr.
 func (b *Bus) Read(id, addr uint8, n int) ([]byte, Status, error) {
 	if id == BroadcastID {
-		return nil, 0, fmt.Errorf("st3215: cannot READ from broadcast ID")
+		return nil, 0, fmt.Errorf("gosts: cannot READ from broadcast ID")
 	}
 	r, err := b.transact(id, InstRead, []byte{addr, byte(n)}, true, n)
 	return r.Params, r.Status, err
@@ -233,7 +233,7 @@ func (b *Bus) SyncWrite(addr uint8, entries []SyncWriteEntry) error {
 	params = append(params, addr, byte(l))
 	for _, e := range entries {
 		if len(e.Data) != l {
-			return fmt.Errorf("st3215: SyncWrite entries must have equal length")
+			return fmt.Errorf("gosts: SyncWrite entries must have equal length")
 		}
 		params = append(params, e.ID)
 		params = append(params, e.Data...)
@@ -263,7 +263,7 @@ func (b *Bus) SyncRead(addr uint8, n int, ids []uint8) (map[uint8]SyncReadResult
 	for _, id := range ids {
 		r, err := b.recv(id, n)
 		if err != nil {
-			out[id] = SyncReadResult{Err: fmt.Errorf("st3215: servo %d: %w", id, err)}
+			out[id] = SyncReadResult{Err: fmt.Errorf("gosts: servo %d: %w", id, err)}
 			continue
 		}
 		out[id] = SyncReadResult{Data: r.Params, Status: r.Status}

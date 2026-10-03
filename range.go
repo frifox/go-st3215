@@ -1,4 +1,4 @@
-package st3215
+package gosts
 
 import "fmt"
 
@@ -99,7 +99,7 @@ func (s *Servo) rangeGoal(pos int) (int, error) {
 		// the gap if the arc wraps past 4095 and the gap lies between them.
 		if gapLo, gapHi := wrapSteps(lo+span+1), lo-1; lo+span > StepsPerRev-1 && gapLo <= gapHi &&
 			max(c, t) >= gapLo && min(c, t) <= gapHi {
-			return 0, fmt.Errorf("st3215: servo %d: this move would leave the motion range (it crosses the servo's 0); use multi-turn mode or move the zero", s.id)
+			return 0, fmt.Errorf("gosts: servo %d: this move would leave the motion range (it crosses the servo's 0); use multi-turn mode or move the zero", s.id)
 		}
 		return t, nil
 	}

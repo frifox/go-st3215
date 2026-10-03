@@ -6,10 +6,10 @@ import (
 	"log"
 	"slices"
 
-	st3215 "github.com/frifox/go-st3215"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
+	"github.com/frifox/gosts"
+	"github.com/frifox/gosts/cmd/servo-ctl/board"
+	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/servo-ctl/web"
 )
 
 // Requests from the browser windows.
@@ -74,8 +74,8 @@ func (a *app) exec(c *web.Client, req internal.Request) error {
 		return nil
 	case "scan":
 		last := req.Last
-		if last == 0 || last > st3215.MaxID {
-			last = st3215.MaxID
+		if last == 0 || last > gosts.MaxID {
+			last = gosts.MaxID
 		}
 		if req.First > last {
 			return fmt.Errorf("invalid ID range %d..%d", req.First, last)
@@ -115,9 +115,9 @@ func (a *app) exec(c *web.Client, req internal.Request) error {
 		}
 	}
 	if req.Group != "" {
-		return a.board.WithBus(func(bus *st3215.Bus) error { return a.groupCommand(bus, req) })
+		return a.board.WithBus(func(bus *gosts.Bus) error { return a.groupCommand(bus, req) })
 	}
-	return a.board.WithBus(func(bus *st3215.Bus) error { return a.servoCommand(c, bus, req) })
+	return a.board.WithBus(func(bus *gosts.Bus) error { return a.servoCommand(c, bus, req) })
 }
 
 // targets are the servos a request is for: req.ID, or the members of
@@ -133,7 +133,7 @@ func (a *app) targets(req internal.Request) []uint8 {
 // servoCommand runs a command on one servo. ID changes and settings reads are
 // handled here, as they involve the board's servo list or the requesting
 // window; everything else goes to the servo controller.
-func (a *app) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request) error {
+func (a *app) servoCommand(c *web.Client, bus *gosts.Bus, req internal.Request) error {
 	if !slices.Contains(a.board.IDs(), req.ID) {
 		return fmt.Errorf("servo %d was not found by the last scan", req.ID)
 	}
@@ -176,7 +176,7 @@ func (a *app) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request)
 }
 
 // groupCommand runs a command on all members of req.Group.
-func (a *app) groupCommand(bus *st3215.Bus, req internal.Request) error {
+func (a *app) groupCommand(bus *gosts.Bus, req internal.Request) error {
 	g, ok := a.cfg.Group(req.Group)
 	if !ok {
 		return fmt.Errorf("unknown group %q", req.Group)
@@ -209,7 +209,7 @@ func (a *app) move(req internal.Request) (int, error) {
 		}
 	}
 	var goal int
-	err := a.board.WithBus(func(bus *st3215.Bus) error {
+	err := a.board.WithBus(func(bus *gosts.Bus) error {
 		var err error
 		goal, err = a.ctl.Move(bus, req, ids)
 		return err
