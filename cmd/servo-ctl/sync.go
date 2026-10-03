@@ -7,6 +7,8 @@ import (
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/server"
 )
 
 // Keeping several browser windows in sync
@@ -18,10 +20,10 @@ import (
 
 // changeNote describes a servo-changing command for the other windows' logs;
 // "" means the command doesn't change servo settings.
-func changeNote(req request) string {
+func changeNote(req internal.Request) string {
 	switch req.Type {
 	case "torque":
-		return fmt.Sprintf("torque %s", onOff(req.On))
+		return fmt.Sprintf("torque %s", internal.OnOff(req.On))
 	case "move":
 		return "" // frequent while dragging; visible in telemetry anyway
 	case "stop":
@@ -33,7 +35,7 @@ func changeNote(req request) string {
 	case "mode":
 		return fmt.Sprintf("mode %s", st3215.Mode(req.Mode))
 	case "multiturn":
-		return fmt.Sprintf("multi-turn %s", onOff(req.On))
+		return fmt.Sprintf("multi-turn %s", internal.OnOff(req.On))
 	case "torqueLimit":
 		return fmt.Sprintf("torque limit %.0f%%", req.Percent)
 	case "write":
@@ -45,7 +47,7 @@ func changeNote(req request) string {
 		}
 		return fmt.Sprintf("tuning changed (%d value(s), %s)", len(req.Values), how)
 	case "mirror":
-		return fmt.Sprintf("mirrored %s", onOff(req.On))
+		return fmt.Sprintf("mirrored %s", internal.OnOff(req.On))
 	case "servoEdit":
 		return "settings edited"
 	case "step":
@@ -58,13 +60,6 @@ func changeNote(req request) string {
 	return ""
 }
 
-func onOff(on bool) string {
-	if on {
-		return "on"
-	}
-	return "off"
-}
-
 // changesServo lists the commands after which a fresh config is broadcast.
 var changesServo = map[string]bool{
 	"torque": true, "move": true, "stop": true, "wheel": true, "pwm": true, "mode": true,
@@ -72,17 +67,17 @@ var changesServo = map[string]bool{
 	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
-func (s *server) afterChange(c *client, req request) {
+func (a *app) afterChange(c *server.Client, req internal.Request) {
 	if !changesServo[req.Type] {
 		return
 	}
 	if req.Group != "" {
-		g, _ := s.cfg.group(req.Group)
+		g, _ := a.cfg.Group(req.Group)
 		if note := changeNote(req); note != "" {
-			s.broadcastExcept(c, logMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: group %s %s", g.Name, note)})
+			a.srv.BroadcastExcept(c, internal.LogMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: group %s %s", g.Name, note)})
 		}
 		for _, id := range g.Members {
-			s.scheduleRefresh(id, c.id)
+			a.scheduleRefresh(id, c.ID())
 		}
 		return
 	}
@@ -91,9 +86,9 @@ func (s *server) afterChange(c *client, req request) {
 		id = req.NewID
 	}
 	if note := changeNote(req); note != "" {
-		s.broadcastExcept(c, logMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: servo %d %s", req.ID, note)})
+		a.srv.BroadcastExcept(c, internal.LogMsg{Type: "log", Level: "info", Message: fmt.Sprintf("another window: servo %d %s", req.ID, note)})
 	}
-	s.scheduleRefresh(id, c.id)
+	a.scheduleRefresh(id, c.ID())
 }
 
 type pendingRefresh struct {
@@ -105,13 +100,13 @@ type pendingRefresh struct {
 // config read and broadcast per servo.
 const refreshDelay = 150 * time.Millisecond
 
-func (s *server) scheduleRefresh(id uint8, origin int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.refresh == nil {
-		s.refresh = map[uint8]*pendingRefresh{}
+func (a *app) scheduleRefresh(id uint8, origin int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.refresh == nil {
+		a.refresh = map[uint8]*pendingRefresh{}
 	}
-	if p, ok := s.refresh[id]; ok {
+	if p, ok := a.refresh[id]; ok {
 		if p.origin != origin {
 			p.origin = -1 // changes from several windows: everyone resyncs
 		}
@@ -120,14 +115,14 @@ func (s *server) scheduleRefresh(id uint8, origin int) {
 	}
 	p := &pendingRefresh{origin: origin}
 	p.timer = time.AfterFunc(refreshDelay, func() {
-		s.mu.Lock()
-		delete(s.refresh, id)
+		a.mu.Lock()
+		delete(a.refresh, id)
 		origin := p.origin
-		s.mu.Unlock()
-		var msg configMsg
-		err := s.withBus(func(bus *st3215.Bus) error {
+		a.mu.Unlock()
+		var msg internal.ConfigMsg
+		err := a.board.WithBus(func(bus *st3215.Bus) error {
 			var err error
-			msg, err = s.readConfigMsg(bus, id)
+			msg, err = a.ctl.ConfigMsg(bus, id)
 			return err
 		})
 		if err != nil {
@@ -135,26 +130,7 @@ func (s *server) scheduleRefresh(id uint8, origin int) {
 			return
 		}
 		msg.Origin = origin
-		s.broadcast(msg)
+		a.Broadcast(msg)
 	})
-	s.refresh[id] = p
-}
-
-func (s *server) readConfigMsg(bus *st3215.Bus, id uint8) (configMsg, error) {
-	sv := bus.Servo(id)
-	cfg, err := sv.ReadConfig()
-	if err != nil {
-		return configMsg{}, err
-	}
-	mem, err := sv.ReadMemory()
-	if err != nil {
-		return configMsg{}, err
-	}
-	regs := make([]registerInfo, len(st3215.Registers))
-	for i, r := range st3215.Registers {
-		regs[i] = registerInfo{Name: r.Name, Addr: r.Addr, Size: r.Size, Area: r.Area.String(),
-			ReadOnly: r.ReadOnly, Min: r.Min, Max: r.Max, Unit: r.Unit, Value: r.Value(mem)}
-	}
-	tried, saved := s.triedValues(id, regs)
-	return configMsg{Type: "config", ID: id, Config: cfg, Registers: regs, Tried: tried, Saved: saved}, nil
+	a.refresh[id] = p
 }

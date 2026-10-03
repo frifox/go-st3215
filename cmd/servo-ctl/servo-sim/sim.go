@@ -1,4 +1,6 @@
-package main
+// Package servosim simulates a driver board with ST3215 servos, so servo-ctl
+// can run without hardware.
+package servosim
 
 import (
 	"math"
@@ -9,10 +11,9 @@ import (
 	st3215 "github.com/frifox/go-st3215"
 )
 
-// simPort implements st3215.Port with simulated servos so servo-ctl can run
-// without hardware. It speaks the real wire protocol and models motion
-// roughly (constant speed, no inertia).
-type simPort struct {
+// Port implements st3215.Port with simulated servos. It speaks the real wire
+// protocol and models motion roughly (constant speed, no inertia).
+type Port struct {
 	mu      sync.Mutex
 	servos  []*simServo
 	out     []byte
@@ -29,8 +30,8 @@ type simServo struct {
 	last   time.Time
 }
 
-func newSimPort(ids ...uint8) *simPort {
-	p := &simPort{timeout: 50 * time.Millisecond}
+func NewPort(ids ...uint8) *Port {
+	p := &Port{timeout: 50 * time.Millisecond}
 	for _, id := range ids {
 		s := &simServo{pos: 1024 + rand.Float64()*2048, last: time.Now()}
 		s.mem = factoryMem(id)
@@ -78,18 +79,18 @@ func toSignMag(v int, bit uint) uint16 {
 	return uint16(v)
 }
 
-func (p *simPort) SetReadTimeout(t time.Duration) error { p.timeout = t; return nil }
+func (p *Port) SetReadTimeout(t time.Duration) error { p.timeout = t; return nil }
 
-func (p *simPort) ResetInputBuffer() error {
+func (p *Port) ResetInputBuffer() error {
 	p.mu.Lock()
 	p.out = nil
 	p.mu.Unlock()
 	return nil
 }
 
-func (p *simPort) Close() error { return nil }
+func (p *Port) Close() error { return nil }
 
-func (p *simPort) Read(b []byte) (int, error) {
+func (p *Port) Read(b []byte) (int, error) {
 	p.mu.Lock()
 	if len(p.out) == 0 {
 		p.mu.Unlock()
@@ -102,14 +103,14 @@ func (p *simPort) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-func (p *simPort) Write(b []byte) (int, error) {
+func (p *Port) Write(b []byte) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.handle(b)
 	return len(b), nil
 }
 
-func (p *simPort) reply(s *simServo, params []byte) {
+func (p *Port) reply(s *simServo, params []byte) {
 	body := append([]byte{s.mem[5], byte(len(params) + 2), s.mem[65]}, params...)
 	var sum byte
 	for _, v := range body {
@@ -120,7 +121,7 @@ func (p *simPort) reply(s *simServo, params []byte) {
 	p.out = append(p.out, ^sum)
 }
 
-func (p *simPort) handle(pkt []byte) {
+func (p *Port) handle(pkt []byte) {
 	if len(pkt) < 6 || pkt[0] != 0xFF || pkt[1] != 0xFF {
 		return
 	}

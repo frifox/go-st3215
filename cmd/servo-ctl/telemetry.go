@@ -2,24 +2,17 @@ package main
 
 import (
 	"context"
-	_ "embed"
-	"slices"
 	"strconv"
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
 )
 
-// Telemetry: polling the servos and streaming feedback to the browsers.
-
-type servoState struct {
-	st3215.Feedback
-	StatusText string `json:"statusText"`
-	Error      string `json:"error,omitempty"`
-}
-
-func (s *server) pollLoop(ctx context.Context) {
-	t := time.NewTicker(s.poll)
+// pollLoop reads the found servos' telemetry every a.poll, checks the groups'
+// health and streams both to every window.
+func (a *app) pollLoop(ctx context.Context) {
+	t := time.NewTicker(a.poll)
 	defer t.Stop()
 	for {
 		select {
@@ -27,40 +20,30 @@ func (s *server) pollLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		s.mu.Lock()
-		ids, scanning := slices.Clone(s.ids), s.scanning
-		s.mu.Unlock()
-		if len(ids) == 0 || scanning {
+		st := a.board.Status()
+		if len(st.IDs) == 0 || st.Scanning {
 			continue
 		}
-		states := map[string]servoState{}
-		var health map[string]groupHealth
-		err := s.withBus(func(bus *st3215.Bus) error {
-			defer func() { health = s.checkGroups(bus, states) }()
-			if s.noSync {
-				for _, id := range ids {
+		states := map[string]internal.ServoState{}
+		var health map[string]internal.GroupHealth
+		err := a.board.WithBus(func(bus *st3215.Bus) error {
+			defer func() { health = a.ctl.CheckGroups(bus, states) }()
+			if a.noSync {
+				for _, id := range st.IDs {
 					f, err := bus.Servo(id).Feedback()
-					states[strconv.Itoa(int(id))] = toState(f, err)
+					states[strconv.Itoa(int(id))] = internal.ToState(f, err)
 				}
 				return nil
 			}
-			res, err := bus.SyncFeedback(ids...)
+			res, err := bus.SyncFeedback(st.IDs...)
 			for id, r := range res {
-				states[strconv.Itoa(int(id))] = toState(r.Feedback, r.Err)
+				states[strconv.Itoa(int(id))] = internal.ToState(r.Feedback, r.Err)
 			}
 			return err
 		})
 		if err != nil {
 			continue
 		}
-		s.broadcast(feedbackMsg{Type: "feedback", Time: time.Now().UnixMilli(), Servos: states, Groups: health})
+		a.Broadcast(internal.FeedbackMsg{Type: "feedback", Time: time.Now().UnixMilli(), Servos: states, Groups: health})
 	}
-}
-
-func toState(f st3215.Feedback, err error) servoState {
-	st := servoState{Feedback: f, StatusText: f.Status.String()}
-	if err != nil {
-		st.Error = err.Error()
-	}
-	return st
 }

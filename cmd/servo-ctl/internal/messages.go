@@ -1,14 +1,14 @@
-package main
+package internal
 
 import (
-	_ "embed"
-
 	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/go-st3215/autotune"
 )
 
 // Messages exchanged with the browser over the WebSocket.
 
-type stateMsg struct {
+// StateMsg is the connection, scan and settings state shared by all windows.
+type StateMsg struct {
 	Type      string             `json:"type"`
 	Connected bool               `json:"connected"`
 	Port      string             `json:"port"`
@@ -23,16 +23,16 @@ type stateMsg struct {
 	Zeros     map[string]float64 `json:"zeros"`   // servo ID -> virtual 0° in degrees
 	DialUps   map[string]float64 `json:"dialUps"` // servo ID -> factory-scale angle that is physically up
 	Ranges    map[string][]int   `json:"ranges"`  // servo ID -> motion range [lo, hi], encoder-scale steps
-	Groups    []groupInfo        `json:"groups"`
+	Groups    []GroupInfo        `json:"groups"`
 }
 
-type portsMsg struct {
+type PortsMsg struct {
 	Type  string     `json:"type"`
-	Ports []portInfo `json:"ports"`
+	Ports []PortInfo `json:"ports"`
 	Sim   string     `json:"sim"` // description of the simulated board
 }
 
-type scanProgressMsg struct {
+type ScanProgressMsg struct {
 	Type    string `json:"type"`
 	Done    int    `json:"done"`
 	Total   int    `json:"total"`
@@ -40,20 +40,20 @@ type scanProgressMsg struct {
 	Found   []int  `json:"found"`
 }
 
-type feedbackMsg struct {
+type FeedbackMsg struct {
 	Type   string                 `json:"type"`
 	Time   int64                  `json:"time"`
-	Servos map[string]servoState  `json:"servos"`
-	Groups map[string]groupHealth `json:"groups"`
+	Servos map[string]ServoState  `json:"servos"`
+	Groups map[string]GroupHealth `json:"groups"`
 }
 
-type logMsg struct {
+type LogMsg struct {
 	Type    string `json:"type"`
 	Level   string `json:"level"`
 	Message string `json:"message"`
 }
 
-type resultMsg struct {
+type ResultMsg struct {
 	Type  string `json:"type"`
 	Seq   int    `json:"seq"`
 	OK    bool   `json:"ok"`
@@ -61,7 +61,7 @@ type resultMsg struct {
 	Goal  *int   `json:"goal,omitempty"` // for "angle" and "jog": the goal the server chose
 }
 
-type registerInfo struct {
+type RegisterInfo struct {
 	Name     string `json:"name"`
 	Addr     uint8  `json:"addr"`
 	Size     uint8  `json:"size"`
@@ -73,24 +73,24 @@ type registerInfo struct {
 	Value    int    `json:"value"`
 }
 
-type helloMsg struct {
+type HelloMsg struct {
 	Type     string `json:"type"`
 	ClientID int    `json:"clientId"`
 }
 
-type configMsg struct {
+type ConfigMsg struct {
 	Type      string         `json:"type"`
 	ID        uint8          `json:"id"`
-	Origin    int            `json:"origin"` // client whose change triggered this; 0 = plain request, -1 = several
+	Origin    int            `json:"origin"` // client whose change triggered this; 0 = plain Request, -1 = several
 	Config    st3215.Config  `json:"config"`
-	Registers []registerInfo `json:"registers"`
+	Registers []RegisterInfo `json:"registers"`
 	Tried     map[string]int `json:"tried"` // tuning values tried but not saved
 	Saved     map[string]int `json:"saved"` // for each tried value, the value saved on the servo
 }
 
-// request is a command from the browser. Only the fields relevant to Type
+// Request is a command from the browser. Only the fields relevant to Type
 // are set.
-type request struct {
+type Request struct {
 	Seq      int        `json:"seq"`
 	Type     string     `json:"type"`
 	ID       uint8      `json:"id"`
@@ -109,7 +109,7 @@ type request struct {
 	Value    int        `json:"value"`
 	Percent  float64    `json:"percent"`
 	Name     string     `json:"name"`    // for "rename"
-	Values   []regValue `json:"values"`  // for "tune"
+	Values   []RegValue `json:"values"`  // for "tune"
 	Save     bool       `json:"save"`    // for "tune"/"copyTuning": persist instead of until power-off
 	Color    string     `json:"color"`   // for "color" and "servoEdit"
 	Zero     float64    `json:"zero"`    // for "servoEdit": virtual 0° in degrees
@@ -129,7 +129,66 @@ type request struct {
 	Tolerance int     `json:"tolerance"` // steps
 }
 
-type regValue struct {
+type RegValue struct {
 	Register string `json:"register"`
 	Value    int    `json:"value"`
+}
+
+// PortInfo describes a serial port for the driver board picker.
+type PortInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	USB         bool   `json:"usb"`
+	VID         string `json:"vid,omitempty"`
+	PID         string `json:"pid,omitempty"`
+	Serial      string `json:"serial,omitempty"`
+	Likely      bool   `json:"likely"` // looks like a Bus Servo Adapter (USB-UART bridge)
+}
+
+// ServoState is one servo's telemetry in a FeedbackMsg.
+type ServoState struct {
+	st3215.Feedback
+	StatusText string `json:"statusText"`
+	Error      string `json:"error,omitempty"`
+}
+
+// ToState turns a feedback read into a ServoState.
+func ToState(f st3215.Feedback, err error) ServoState {
+	st := ServoState{Feedback: f, StatusText: f.Status.String()}
+	if err != nil {
+		st.Error = err.Error()
+	}
+	return st
+}
+
+// GroupInfo describes a group in a StateMsg.
+type GroupInfo struct {
+	Key          string  `json:"key"`
+	Name         string  `json:"name"`
+	Members      []int   `json:"members"` // leader first
+	MaxSpread    int     `json:"maxSpread"`
+	MaxFightLoad float64 `json:"maxFightLoad"`
+	OnFight      string  `json:"onFight"`
+}
+
+// GroupHealth is sent with every telemetry frame.
+type GroupHealth struct {
+	Spread   int    `json:"spread"`   // steps between the members' logical positions
+	Fighting bool   `json:"fighting"` // members push in opposite directions
+	Tripped  bool   `json:"tripped"`  // torque was cut by fight protection
+	Problem  string `json:"problem,omitempty"`
+}
+
+// AutotuneMsg reports an auto-tune run (progress, result, save/revert).
+type AutotuneMsg struct {
+	Type     string             `json:"type"` // "autotune"
+	Key      string             `json:"key"`
+	Label    string             `json:"label"`
+	Members  []int              `json:"members"`
+	Running  bool               `json:"running"`
+	Progress *autotune.Progress `json:"progress,omitempty"`
+	Result   *autotune.Result   `json:"result,omitempty"`
+	Error    string             `json:"error,omitempty"`
+	Saved    bool               `json:"saved,omitempty"`
+	Reverted bool               `json:"reverted,omitempty"`
 }

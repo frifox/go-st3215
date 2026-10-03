@@ -1,7 +1,11 @@
 // Command servo-ctl is a web console for ST3215 servos built on the st3215
 // package: a WebSocket server that streams servo telemetry and accepts
-// control commands, plus a web page (web/index.html, embedded) to set up,
-// monitor and drive the servos.
+// control commands, plus a web page to set up, monitor and drive the servos.
+//
+// Packages: server (HTTP and WebSocket), board (driver board: ports,
+// connection, scanning), servo (commands on the servo motors), servo-sim (a
+// simulated board), internal (settings file, messages, shared helpers); this
+// package ties them together.
 //
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
@@ -32,13 +36,9 @@ import (
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
 )
-
-//go:embed web/index.html
-var indexHTML []byte
-
-// simPortName is the pseudo port that selects the simulated driver board.
-const simPortName = "sim"
 
 // defaultConfigPath is servo-ctl/config.toml in the user's config directory
 // (~/.config on Linux, ~/Library/Application Support on macOS).
@@ -60,43 +60,39 @@ func main() {
 	cfgPath := flag.String("config", defaultConfigPath(), "settings file (servo names, mirroring, zero, ranges, groups), created on first change")
 	flag.Parse()
 
-	cfg, warnings, err := loadConfig(*cfgPath)
+	cfg, warnings, err := internal.LoadConfig(*cfgPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, w := range warnings {
 		log.Print(w)
 	}
-	log.Printf("config: %s (%d servo entries)", *cfgPath, len(cfg.all()))
+	log.Printf("config: %s (%d servo entries)", *cfgPath, len(cfg.All()))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	srv := &server{clients: map[*client]struct{}{}, cfg: cfg, poll: *poll, noSync: *noSync, simIDs: []uint8{1, 2, 3}}
+	simIDs := []uint8{1, 2, 3}
 	if *sim != "" {
-		ids, err := parseIDs(*sim)
-		if err != nil {
+		if simIDs, err = parseIDs(*sim); err != nil {
 			log.Fatal(err)
 		}
-		srv.simIDs = ids
-		*port = simPortName
+		*port = board.SimPort
 	}
+	a := newApp(cfg, simIDs, *poll, *noSync)
 	if *port != "" {
-		if err := srv.connect(*port, *baud); err != nil {
+		if err := a.board.Connect(*port, *baud); err != nil {
 			log.Fatal(err)
 		}
-		go srv.scan(ctx, 0, st3215.MaxID)
+		go a.board.Scan(ctx, 0, st3215.MaxID)
 	}
-	defer srv.disconnect()
-	go srv.pollLoop(ctx)
+	defer func() {
+		a.stopAutotune()
+		a.board.Disconnect()
+	}()
+	go a.pollLoop(ctx)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(indexHTML)
-	})
-	mux.HandleFunc("/ws", srv.handleWS)
-	hs := &http.Server{Addr: *addr, Handler: mux}
+	hs := &http.Server{Addr: *addr, Handler: a.srv.Routes()}
 	go func() {
 		<-ctx.Done()
 		hs.Close()

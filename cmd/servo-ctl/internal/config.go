@@ -1,4 +1,7 @@
-package main
+// Package internal holds what the servo-ctl packages share: the settings
+// file (config.toml), the messages exchanged with the browser, the Notifier
+// they report through, and small helpers.
+package internal
 
 import (
 	"bytes"
@@ -16,9 +19,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// servoConfig holds the per-servo settings kept in config.toml. They live in
+// ServoConfig holds the per-servo settings kept in config.toml. They live in
 // servo-ctl, not on the servo (which has no room for user data).
-type servoConfig struct {
+type ServoConfig struct {
 	Name     string  `toml:"Name,omitempty"`
 	Mirrored bool    `toml:"Mirrored,omitempty"`
 	Signed   bool    `toml:"Signed,omitempty"` // show angles as -180..180 instead of 0..360
@@ -28,12 +31,12 @@ type servoConfig struct {
 	Range    []int   `toml:"Range,omitempty"`  // motion range [lo, hi]: clockwise arc in encoder-scale steps (0..4095, logical)
 }
 
-func (c servoConfig) empty() bool {
+func (c ServoConfig) empty() bool {
 	return c.Name == "" && !c.Mirrored && !c.Signed && c.Color == "" && c.Zero == 0 && c.DialUp == 0 && len(c.Range) == 0
 }
 
-// groupConfig is a set of servos driven as one (see st3215.Group).
-type groupConfig struct {
+// GroupConfig is a set of servos driven as one (see st3215.Group).
+type GroupConfig struct {
 	Name    string  `toml:"Name"`
 	Members []uint8 `toml:"Members"` // leader first
 	// Fight detection: warn (or cut torque) when members disagree.
@@ -43,25 +46,27 @@ type groupConfig struct {
 }
 
 const (
-	defaultMaxSpread    = 20 // steps (≈1.8°)
-	defaultMaxFightLoad = 30 // % load pushing in opposite directions
+	DefaultMaxSpread    = 20 // steps (≈1.8°)
+	DefaultMaxFightLoad = 30 // % load pushing in opposite directions
 )
 
-func (g groupConfig) maxSpread() int {
+// SpreadLimit is MaxSpread, or its default.
+func (g GroupConfig) SpreadLimit() int {
 	if g.MaxSpread > 0 {
 		return g.MaxSpread
 	}
-	return defaultMaxSpread
+	return DefaultMaxSpread
 }
 
-func (g groupConfig) maxFightLoad() float64 {
+// FightLoadLimit is MaxFightLoad, or its default.
+func (g GroupConfig) FightLoadLimit() float64 {
 	if g.MaxFightLoad > 0 {
 		return g.MaxFightLoad
 	}
-	return defaultMaxFightLoad
+	return DefaultMaxFightLoad
 }
 
-// config is config.toml: one table per servo ID, plus [group.<key>] tables.
+// Config is config.toml: one table per servo ID, plus [group.<key>] tables.
 //
 //	[1]
 //	Name = "Left"
@@ -73,21 +78,21 @@ func (g groupConfig) maxFightLoad() float64 {
 //	[group.pitch]
 //	Name = "Pitch"
 //	Members = [1, 2]
-type config struct {
+type Config struct {
 	path string
 
 	mu     sync.Mutex
-	servos map[uint8]servoConfig
-	groups map[string]groupConfig
+	servos map[uint8]ServoConfig
+	groups map[string]GroupConfig
 }
 
 const configHeader = `# servo-ctl: per-servo settings keyed by servo ID, and servo groups.
 # Edited by the web UI; changes made here are read on startup.
 `
 
-// loadConfig reads path; a missing file yields an empty config.
-func loadConfig(path string) (*config, []string, error) {
-	c := &config{path: path, servos: map[uint8]servoConfig{}, groups: map[string]groupConfig{}}
+// LoadConfig reads path; a missing file yields an empty config.
+func LoadConfig(path string) (*Config, []string, error) {
+	c := &Config{path: path, servos: map[uint8]ServoConfig{}, groups: map[string]GroupConfig{}}
 	var raw map[string]toml.Primitive
 	md, err := toml.DecodeFile(path, &raw)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -102,7 +107,7 @@ func loadConfig(path string) (*config, []string, error) {
 	}
 	for key, prim := range raw {
 		if key == "group" {
-			var groups map[string]groupConfig
+			var groups map[string]GroupConfig
 			if err := md.PrimitiveDecode(prim, &groups); err != nil {
 				return nil, nil, fmt.Errorf("%s: [group]: %w", path, err)
 			}
@@ -116,7 +121,7 @@ func loadConfig(path string) (*config, []string, error) {
 			warn("[%s] is not a servo ID (0-253), ignored", key)
 			continue
 		}
-		var sc servoConfig
+		var sc ServoConfig
 		if err := md.PrimitiveDecode(prim, &sc); err != nil {
 			return nil, nil, fmt.Errorf("%s: [%s]: %w", path, key, err)
 		}
@@ -157,28 +162,29 @@ func loadConfig(path string) (*config, []string, error) {
 	return c, warnings, nil
 }
 
-func (c *config) get(id uint8) servoConfig {
+// Get returns servo id's settings (the zero value if there are none).
+func (c *Config) Get(id uint8) ServoConfig {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.servos[id]
 }
 
-// all returns a copy of every servo entry.
-func (c *config) all() map[uint8]servoConfig {
+// All returns a copy of every servo entry.
+func (c *Config) All() map[uint8]ServoConfig {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make(map[uint8]servoConfig, len(c.servos))
+	out := make(map[uint8]ServoConfig, len(c.servos))
 	for id, sc := range c.servos {
 		out[id] = sc
 	}
 	return out
 }
 
-// allGroups returns a copy of every group.
-func (c *config) allGroups() map[string]groupConfig {
+// AllGroups returns a copy of every group.
+func (c *Config) AllGroups() map[string]GroupConfig {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make(map[string]groupConfig, len(c.groups))
+	out := make(map[string]GroupConfig, len(c.groups))
 	for k, g := range c.groups {
 		g.Members = slices.Clone(g.Members)
 		out[k] = g
@@ -186,7 +192,8 @@ func (c *config) allGroups() map[string]groupConfig {
 	return out
 }
 
-func (c *config) group(key string) (groupConfig, bool) {
+// Group returns the group with this key.
+func (c *Config) Group(key string) (GroupConfig, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	g, ok := c.groups[key]
@@ -194,14 +201,14 @@ func (c *config) group(key string) (groupConfig, bool) {
 	return g, ok
 }
 
-// groupOf returns the key of the group containing id, or "".
-func (c *config) groupOf(id uint8) string {
+// GroupOf returns the key of the group containing id, or "".
+func (c *Config) GroupOf(id uint8) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.groupOfLocked(id)
 }
 
-func (c *config) groupOfLocked(id uint8) string {
+func (c *Config) groupOfLocked(id uint8) string {
 	for k, g := range c.groups {
 		if slices.Contains(g.Members, id) {
 			return k
@@ -210,8 +217,8 @@ func (c *config) groupOfLocked(id uint8) string {
 	return ""
 }
 
-// update changes one servo entry and saves the file.
-func (c *config) update(id uint8, f func(*servoConfig)) error {
+// Update changes one servo entry and saves the file.
+func (c *Config) Update(id uint8, f func(*ServoConfig)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	sc := c.servos[id]
@@ -226,9 +233,9 @@ func (c *config) update(id uint8, f func(*servoConfig)) error {
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
-// setGroup creates (key == "") or updates a group and saves the file. It
+// SetGroup creates (key == "") or updates a group and saves the file. It
 // returns the group's key.
-func (c *config) setGroup(key string, g groupConfig) (string, error) {
+func (c *Config) SetGroup(key string, g GroupConfig) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(g.Members) < 2 {
@@ -263,7 +270,8 @@ func (c *config) setGroup(key string, g groupConfig) (string, error) {
 	return key, c.saveLocked()
 }
 
-func (c *config) deleteGroup(key string) error {
+// DeleteGroup removes a group and saves the file.
+func (c *Config) DeleteGroup(key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.groups[key]; !ok {
@@ -273,9 +281,9 @@ func (c *config) deleteGroup(key string) error {
 	return c.saveLocked()
 }
 
-// move re-keys a servo after an ID change (entry and group membership) and
+// Move re-keys a servo after an ID change (entry and group membership) and
 // saves the file.
-func (c *config) move(from, to uint8) error {
+func (c *Config) Move(from, to uint8) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if sc, ok := c.servos[from]; ok {
@@ -293,7 +301,7 @@ func (c *config) move(from, to uint8) error {
 
 // saveLocked writes the file atomically: servo tables in numeric ID order,
 // then groups by key.
-func (c *config) saveLocked() error {
+func (c *Config) saveLocked() error {
 	ids := make([]int, 0, len(c.servos))
 	for id := range c.servos {
 		ids = append(ids, int(id))
@@ -338,8 +346,8 @@ func (c *config) saveLocked() error {
 	return os.Rename(tmp.Name(), c.path)
 }
 
-// validName limits names to something that displays well.
-func validName(name string) (string, error) {
+// ValidName limits names to something that displays well.
+func ValidName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if len([]rune(name)) > 40 {
 		return "", errors.New("name is longer than 40 characters")
@@ -352,8 +360,8 @@ func validName(name string) (string, error) {
 
 var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
-// validColor accepts "#rrggbb" or "" (back to the palette color).
-func validColor(color string) (string, error) {
+// ValidColor accepts "#rrggbb" or "" (back to the palette color).
+func ValidColor(color string) (string, error) {
 	color = strings.TrimSpace(color)
 	if color != "" && !colorRe.MatchString(color) {
 		return "", errors.New(`color must look like "#1f77b4"`)

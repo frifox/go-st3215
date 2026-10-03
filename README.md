@@ -181,6 +181,12 @@ OnFight = "torque-off"  # default "warn"
 Several browser windows can be open at once: connection, scan, telemetry, names, mirrored state and
 servo settings stay in sync across them (each window still picks its own selected servo).
 
+Code layout: [`server`](cmd/servo-ctl/server) (HTTP + WebSocket, the embedded page),
+[`board`](cmd/servo-ctl/board) (serial ports, connection, scanning), [`servo`](cmd/servo-ctl/servo)
+(commands on the servo motors and groups), [`servo-sim`](cmd/servo-ctl/servo-sim) (simulated board),
+[`internal`](cmd/servo-ctl/internal) (settings file, messages, shared helpers); `cmd/servo-ctl` itself ties
+them together.
+
 servo-ctl adds `github.com/gorilla/websocket` and `github.com/BurntSushi/toml` to the module; the
 library packages don't import them. Listing USB port details uses cgo on macOS (the Xcode command
 line tools).

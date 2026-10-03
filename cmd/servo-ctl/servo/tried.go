@@ -1,7 +1,7 @@
-package main
+package servo
 
 import (
-	_ "embed"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
 )
 
 // Tried-but-not-saved tuning values
@@ -15,20 +15,20 @@ type triedValue struct {
 	Saved int // stored on the servo (what a power-cycle brings back)
 }
 
-// setTried records values written with "Try" (save false) or saved (save
+// SetTried records values written with "Try" (save false) or saved (save
 // true). saved holds each register's value before the write; it is only used
 // for registers that weren't tried yet. Trying the saved value again ends the
 // trial.
-func (s *server) setTried(id uint8, values []regValue, save bool, saved map[string]int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.tried == nil {
-		s.tried = map[uint8]map[string]triedValue{}
+func (c *Controller) SetTried(id uint8, values []internal.RegValue, save bool, saved map[string]int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.tried == nil {
+		c.tried = map[uint8]map[string]triedValue{}
 	}
-	t := s.tried[id]
+	t := c.tried[id]
 	if t == nil {
 		t = map[string]triedValue{}
-		s.tried[id] = t
+		c.tried[id] = t
 	}
 	for _, v := range values {
 		if save {
@@ -47,7 +47,7 @@ func (s *server) setTried(id uint8, values []regValue, save bool, saved map[stri
 		}
 	}
 	if len(t) == 0 {
-		delete(s.tried, id)
+		delete(c.tried, id)
 	}
 }
 
@@ -55,10 +55,10 @@ func (s *server) setTried(id uint8, values []regValue, save bool, saved map[stri
 // whose register no longer holds the tried value (the servo was power-cycled
 // and reverted) are forgotten.
 // The second map has the saved value of each.
-func (s *server) triedValues(id uint8, regs []registerInfo) (map[string]int, map[string]int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t := s.tried[id]
+func (c *Controller) triedValues(id uint8, regs []internal.RegisterInfo) (map[string]int, map[string]int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := c.tried[id]
 	out, saved := map[string]int{}, map[string]int{}
 	for _, r := range regs {
 		if v, ok := t[r.Name]; ok {
@@ -71,7 +71,24 @@ func (s *server) triedValues(id uint8, regs []registerInfo) (map[string]int, map
 		}
 	}
 	if len(t) == 0 {
-		delete(s.tried, id)
+		delete(c.tried, id)
 	}
 	return out, saved
+}
+
+// MoveTried follows a servo's ID change.
+func (c *Controller) MoveTried(from, to uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if t, ok := c.tried[from]; ok {
+		delete(c.tried, from)
+		c.tried[to] = t
+	}
+}
+
+// forgetTried drops servo id's tried values (after a factory reset).
+func (c *Controller) forgetTried(id uint8) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.tried, id)
 }
