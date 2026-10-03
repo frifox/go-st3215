@@ -51,7 +51,7 @@ func defaultConfigPath() string {
 func main() {
 	port := flag.String("port", os.Getenv("ST3215_PORT"), "serial device to connect to on startup (optional)")
 	baud := flag.Int("baud", gosts.DefaultBaudRate, "bus baud rate used with -port")
-	addr := flag.String("addr", "localhost:8080", "HTTP listen address")
+	addr := flag.String("addr", "", "web console address, e.g. localhost:8080 (default: ListenAddr in the config file, \""+internal.DefaultListenAddr+"\" if unset)")
 	sim := flag.String("sim", "", "connect to simulated servos with these IDs on startup, e.g. 1,2,3")
 	poll := flag.Duration("poll", 50*time.Millisecond, "telemetry polling interval")
 	noSync := flag.Bool("nosync", false, "poll servos one by one instead of SYNC READ")
@@ -76,6 +76,9 @@ func main() {
 			log.Fatal(err)
 		}
 		*port = board.SimPort
+	}
+	if *addr == "" {
+		*addr = cfg.ListenAddr()
 	}
 	if err := newApp(cfg, simIDs, *poll, *noSync).run(ctx, *addr, *port, *baud); err != nil {
 		log.Fatal(err)

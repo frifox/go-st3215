@@ -144,8 +144,10 @@ gosts-ctl -sim 1,2,3                    # simulated servos, no hardware needed
 
 From a checkout, `go run ./cmd/gosts-ctl` does the same.
 
-Then open http://localhost:8080. Other flags: `-baud`, `-addr`, `-poll` (telemetry interval,
-default 50 ms), `-nosync` (poll servos one by one if SYNC READ misbehaves) and `-config`.
+Then open http://localhost:8080. The console listens on `ListenAddr` from `config.toml` (default
+`:8080`, every network interface; set `"localhost:8080"` to keep it to this machine), or on `-addr`
+when given. Other flags: `-baud`, `-poll` (telemetry interval, default 50 ms), `-nosync` (poll servos
+one by one if SYNC READ misbehaves) and `-config`.
 
 Per-servo settings that can't be stored on the servo are kept in `config.toml`, keyed by servo ID:
 `~/.config/gosts-ctl/config.toml` on Linux, `~/Library/Application Support/gosts-ctl/config.toml` on
@@ -154,6 +156,8 @@ too (`Range = [lo, hi]`, encoder-scale steps) and enforced in multi-turn mode as
 edit a servo (pencil next to its name: name, color, mirrored, ±180° angles, virtual 0°, dial orientation) or change an ID. Edits made by hand are read on startup:
 
 ```toml
+ListenAddr = ":8080" # web console address
+
 [1]
 Name = "Left"
 

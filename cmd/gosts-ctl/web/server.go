@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,7 +59,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		<-ctx.Done()
 		hs.Close()
 	}()
-	log.Printf("open http://%s", addr)
+	open := addr
+	if strings.HasPrefix(open, ":") {
+		open = "localhost" + open // every interface, this machine included
+	}
+	log.Printf("listening on %s; open http://%s", addr, open)
 	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

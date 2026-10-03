@@ -66,7 +66,10 @@ func (g GroupConfig) FightLoadLimit() float64 {
 	return DefaultMaxFightLoad
 }
 
-// Config is config.toml: one table per servo ID, plus [group.<key>] tables.
+// Config is config.toml: settings for gosts-ctl itself (ListenAddr), one
+// table per servo ID, plus [group.<key>] tables.
+//
+//	ListenAddr = ":8080"
 //
 //	[1]
 //	Name = "Left"
@@ -81,22 +84,40 @@ func (g GroupConfig) FightLoadLimit() float64 {
 type Config struct {
 	path string
 
-	mu     sync.Mutex
-	servos map[uint8]ServoConfig
-	groups map[string]GroupConfig
+	mu         sync.Mutex
+	listenAddr string
+	servos     map[uint8]ServoConfig
+	groups     map[string]GroupConfig
+}
+
+// DefaultListenAddr is the web console's address when the file doesn't set
+// ListenAddr: port 8080 on every network interface.
+const DefaultListenAddr = ":8080"
+
+// ListenAddr is the address the web console listens on ("host:port"; an
+// empty host means every interface).
+func (c *Config) ListenAddr() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.listenAddr == "" {
+		return DefaultListenAddr
+	}
+	return c.listenAddr
 }
 
 const configHeader = `# gosts-ctl: per-servo settings keyed by servo ID, and servo groups.
 # Edited by the web UI; changes made here are read on startup.
 `
 
-// LoadConfig reads path; a missing file yields an empty config.
+// LoadConfig reads path. A missing file, or one without ListenAddr, is
+// written with the default ListenAddr so the setting is easy to find.
 func LoadConfig(path string) (*Config, []string, error) {
 	c := &Config{path: path, servos: map[uint8]ServoConfig{}, groups: map[string]GroupConfig{}}
 	var raw map[string]toml.Primitive
 	md, err := toml.DecodeFile(path, &raw)
 	if errors.Is(err, fs.ErrNotExist) {
-		return c, nil, nil
+		c.listenAddr = DefaultListenAddr
+		return c, nil, c.saveLocked()
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", path, err)
@@ -106,6 +127,12 @@ func LoadConfig(path string) (*Config, []string, error) {
 		warnings = append(warnings, path+": "+fmt.Sprintf(format, args...))
 	}
 	for key, prim := range raw {
+		if key == "ListenAddr" {
+			if err := md.PrimitiveDecode(prim, &c.listenAddr); err != nil {
+				return nil, nil, fmt.Errorf("%s: ListenAddr: %w", path, err)
+			}
+			continue
+		}
 		if key == "group" {
 			var groups map[string]GroupConfig
 			if err := md.PrimitiveDecode(prim, &groups); err != nil {
@@ -158,6 +185,12 @@ func LoadConfig(path string) (*Config, []string, error) {
 			continue
 		}
 		c.groups[k] = g
+	}
+	if _, ok := raw["ListenAddr"]; !ok {
+		c.listenAddr = DefaultListenAddr
+		if err := c.saveLocked(); err != nil {
+			warn("could not add ListenAddr: %v", err)
+		}
 	}
 	return c, warnings, nil
 }
@@ -315,6 +348,7 @@ func (c *Config) saveLocked() error {
 
 	var buf bytes.Buffer
 	buf.WriteString(configHeader)
+	fmt.Fprintf(&buf, "\n# Web console address: \"host:port\"; an empty host listens on every interface.\nListenAddr = %s\n", strconv.Quote(c.listenAddr))
 	for _, id := range ids {
 		fmt.Fprintf(&buf, "\n[%d]\n", id)
 		if err := toml.NewEncoder(&buf).Encode(c.servos[uint8(id)]); err != nil {
