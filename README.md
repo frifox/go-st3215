@@ -1,9 +1,7 @@
-# Go STServo
+# Go ST Servo
 
-Go package `gosts` (module `github.com/frifox/gosts`) for controlling and monitoring
-**Waveshare ST3215** serial bus servos (Feetech STS3215 protocol) through the
-**Waveshare Bus Servo Adapter (A)**.
-Works on Linux and macOS. The library's only dependency is `go.bug.st/serial`.
+Go package built to control Waveshare ST3215 servo, but should work with other Waveshare ST and possibly the original Feetech STS servos too.
+Servos are driven by the **Waveshare Bus Servo Adapter (A)** but connecting to servo directly should also work.
 
 ![servo-ctl web console controlling ST3215 servos](docs/screenshot.jpg)
 
