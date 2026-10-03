@@ -5,7 +5,8 @@
 // Packages: web (HTTP and WebSocket, the page in web/dist), board (driver
 // board: ports, connection, scanning), servo (commands on the servo motors),
 // servo-sim (a simulated board), internal (settings file, messages, shared
-// helpers); this package ties them together.
+// helpers), and app, which ties them together; this package parses the flags
+// and starts the app.
 //
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
@@ -22,7 +23,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -34,6 +34,7 @@ import (
 	"time"
 
 	st3215 "github.com/frifox/go-st3215"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/app"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
 )
@@ -77,20 +78,7 @@ func main() {
 		}
 		*port = board.SimPort
 	}
-	a := newApp(cfg, simIDs, *poll, *noSync)
-	if *port != "" {
-		if err := a.board.Connect(*port, *baud); err != nil {
-			log.Fatal(err)
-		}
-		go a.board.Scan(ctx, 0, st3215.MaxID)
-	}
-	defer func() {
-		a.stopAutotune()
-		a.board.Disconnect()
-	}()
-	go a.pollLoop(ctx)
-
-	if err := a.srv.ListenAndServe(ctx, *addr); err != nil {
+	if err := app.New(cfg, simIDs, *poll, *noSync).Run(ctx, *addr, *port, *baud); err != nil {
 		log.Fatal(err)
 	}
 }

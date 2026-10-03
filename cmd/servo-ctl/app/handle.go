@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 // Requests from the browser windows.
 
 // Connected sends a new window the current state.
-func (a *app) Connected(c *web.Client) {
+func (a *App) Connected(c *web.Client) {
 	c.Push(a.stateMsg())
 	if m := a.autotuneState(); m != nil {
 		c.Push(*m)
@@ -25,7 +25,7 @@ func (a *app) Connected(c *web.Client) {
 // Handle runs one request. Scans and auto-tune runs are long, so they run in
 // the background (and can be cancelled); the window's other requests run in
 // order, so rapid moves can't overtake each other.
-func (a *app) Handle(c *web.Client, req internal.Request) {
+func (a *App) Handle(c *web.Client, req internal.Request) {
 	if req.Type == "scan" || req.Type == "autotune" {
 		go a.handle(c, req)
 		return
@@ -33,7 +33,7 @@ func (a *app) Handle(c *web.Client, req internal.Request) {
 	a.handle(c, req)
 }
 
-func (a *app) handle(c *web.Client, req internal.Request) {
+func (a *App) handle(c *web.Client, req internal.Request) {
 	var goal *int
 	var err error
 	switch req.Type {
@@ -56,7 +56,7 @@ func (a *app) handle(c *web.Client, req internal.Request) {
 	}
 }
 
-func (a *app) exec(c *web.Client, req internal.Request) error {
+func (a *App) exec(c *web.Client, req internal.Request) error {
 	switch req.Type {
 	case "ports":
 		ports, err := board.ListPorts()
@@ -122,7 +122,7 @@ func (a *app) exec(c *web.Client, req internal.Request) error {
 
 // targets are the servos a request is for: req.ID, or the members of
 // req.Group (leader first).
-func (a *app) targets(req internal.Request) []uint8 {
+func (a *App) targets(req internal.Request) []uint8 {
 	if req.Group != "" {
 		g, _ := a.cfg.Group(req.Group)
 		return g.Members
@@ -133,7 +133,7 @@ func (a *app) targets(req internal.Request) []uint8 {
 // servoCommand runs a command on one servo. ID changes and settings reads are
 // handled here, as they involve the board's servo list or the requesting
 // window; everything else goes to the servo controller.
-func (a *app) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request) error {
+func (a *App) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request) error {
 	if !slices.Contains(a.board.IDs(), req.ID) {
 		return fmt.Errorf("servo %d was not found by the last scan", req.ID)
 	}
@@ -176,7 +176,7 @@ func (a *app) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request)
 }
 
 // groupCommand runs a command on all members of req.Group.
-func (a *app) groupCommand(bus *st3215.Bus, req internal.Request) error {
+func (a *App) groupCommand(bus *st3215.Bus, req internal.Request) error {
 	g, ok := a.cfg.Group(req.Group)
 	if !ok {
 		return fmt.Errorf("unknown group %q", req.Group)
@@ -192,7 +192,7 @@ func (a *app) groupCommand(bus *st3215.Bus, req internal.Request) error {
 
 // move runs an "angle" or "jog" move for a servo or group and returns the
 // goal it chose.
-func (a *app) move(req internal.Request) (int, error) {
+func (a *App) move(req internal.Request) (int, error) {
 	if req.Group != "" {
 		if _, ok := a.cfg.Group(req.Group); !ok {
 			return 0, fmt.Errorf("unknown group %q", req.Group)

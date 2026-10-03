@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"path/filepath"
@@ -9,7 +9,7 @@ import (
 
 func TestGroupDefaultName(t *testing.T) {
 	cfg, _, _ := internal.LoadConfig(filepath.Join(t.TempDir(), "config.toml"))
-	s := newApp(cfg, nil, 0, false)
+	s := New(cfg, nil, 0, false)
 	if err := s.groupSave(internal.Request{Members: []int{1, 2}}); err != nil {
 		t.Fatal(err)
 	}
