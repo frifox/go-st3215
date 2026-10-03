@@ -1,4 +1,4 @@
-// Package gosts (Go STServo) controls and monitors Waveshare ST3215 (Feetech
+// Package gosts (Go ST Servo) controls and monitors Waveshare ST3215 (Feetech
 // STS3215) serial bus servos through a Waveshare Bus Servo Adapter (A) or any
 // other half-duplex TTL adapter. It runs on Linux and macOS.
 //

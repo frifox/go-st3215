@@ -1,5 +1,5 @@
 // Command servo-ctl is a web console for ST3215 servos built on the gosts
-// package (Go STServo): a WebSocket server that streams servo telemetry and
+// package (Go ST Servo): a WebSocket server that streams servo telemetry and
 // accepts control commands, plus a web page to set up, monitor and drive the
 // servos.
 //
