@@ -4,6 +4,12 @@
 [10]
 Mirrored = true
 Signed = true
-Zero = 180.0
-DialUp = 270.0
-Range = [1884, 3932]
+DialUp = 90.0
+
+[11]
+Signed = true
+DialUp = 90.0
+
+[group.group]
+Name = "Group"
+Members = [10, 11]

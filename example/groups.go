@@ -166,7 +166,7 @@ func (s *server) groupCommand(bus *st3215.Bus, req request) error {
 	case "multiturn":
 		var errs []error
 		for _, id := range gc.Members {
-			if err := s.setMultiTurn(bus.Servo(id), id, req.On); err != nil {
+			if err := s.setMultiTurn(bus, id, req.On); err != nil {
 				errs = append(errs, fmt.Errorf("servo %d: %w", id, err))
 			}
 		}

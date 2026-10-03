@@ -1973,7 +1973,8 @@ async function setServoZero(d, what) {
   if (Math.abs(wrap360(d - cur + 180) - 180) < 0.05) return log(`Servo ${id}'s 0° is already at ${cur}°.`);
   const shift = Math.round(wrap360(d - cur) * 10) / 10;
   if (!await ask(`Put servo ${id}'s 0° at ${what}?\n\nEvery angle shifts by ${shift}° (saved on the servo, so every app sees it). The arm stays where it is.` +
-    (zeroOf(id) ? `\n\nThe virtual 0° (${zeroOf(id)}°) is cleared, since the servo's zero replaces it.` : ""), "Set")) return;
+    (zeroOf(id) ? `\n\nThe virtual 0° (${zeroOf(id)}°) is cleared, since the servo's zero replaces it.` : "") +
+    (groupOf(id) ? `\n\nServo ${id} is in group ${groupOf(id).name}: its readings will no longer match the other members, so the group would drive them apart. To keep them together, use the group's Setup → Set 0° to instead.` : ""), "Set")) return;
   if (await cmd("zeroAt", { degrees: d })) loadConfig(true);
 }
 $("zeroAtBtn").onclick = () => {

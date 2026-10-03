@@ -1072,7 +1072,7 @@ func (s *server) setLimits(bus *st3215.Bus, sv *st3215.Servo, req request) error
 	if err != nil || lim {
 		return err
 	}
-	return s.applyAngleLimits(sv, req.ID)
+	return s.applyAngleLimits(bus, req.ID)
 }
 
 // clearLimits removes the motion range; a single-turn servo may again use the
@@ -1094,11 +1094,11 @@ func (s *server) clearLimits(bus *st3215.Bus, sv *st3215.Servo, id uint8) error 
 // setMultiTurn switches multi-turn mode. Leaving it, a servo with a motion
 // range gets that range as its angle limits (the library enforces the range
 // either way).
-func (s *server) setMultiTurn(sv *st3215.Servo, id uint8, on bool) error {
+func (s *server) setMultiTurn(bus *st3215.Bus, id uint8, on bool) error {
 	if !on && len(s.cfg.get(id).Range) == 2 {
-		return s.applyAngleLimits(sv, id)
+		return s.applyAngleLimits(bus, id)
 	}
-	return sv.SetMultiTurn(on)
+	return bus.Servo(id).SetMultiTurn(on)
 }
 
 func multiTurn(sv *st3215.Servo) (bool, error) {
@@ -1108,12 +1108,79 @@ func multiTurn(sv *st3215.Servo) (bool, error) {
 
 func wrapSteps(p int) int { return (p%st3215.StepsPerRev + st3215.StepsPerRev) % st3215.StepsPerRev }
 
+// shiftZero moves the servo's 0 by shift steps (readings drop by shift) on
+// the servo and, if it is in a group, on every member alike, adjusting the
+// virtual 0° and dial orientation so the console angles stay the same. It
+// returns the shift applied to servo id.
+func (s *server) shiftZero(bus *st3215.Bus, id uint8, shift int) (int, error) {
+	ids := []uint8{id}
+	if g, ok := s.cfg.group(s.cfg.groupOf(id)); ok {
+		ids = g.Members
+	}
+	wrap := func(d float64) float64 { return math.Mod(math.Mod(d, 360)+360, 360) }
+	round := func(v float64) float64 { return math.Round(wrap(v)*10) / 10 }
+	appliedTo := 0
+	for _, m := range ids {
+		sv := bus.Servo(m)
+		z0, err := sv.Zero()
+		if err != nil {
+			return 0, err
+		}
+		if err := sv.SetZeroAt(shift); err != nil {
+			return 0, fmt.Errorf("servo %d: %w", m, err)
+		}
+		z1, err := sv.Zero()
+		if err != nil {
+			return 0, err
+		}
+		applied := st3215.CircularDiff(z1, z0) // an offset of -2048 can't be stored: one step off
+		d := float64(applied) * st3215.DegreesPerStep
+		if err := s.cfg.update(m, func(c *servoConfig) {
+			c.Zero, c.DialUp = round(c.Zero-d), round(c.DialUp-d)
+		}); err != nil {
+			return 0, err
+		}
+		if m == id {
+			appliedTo = applied
+		} else if err := s.refreshAngleLimits(sv, m); err != nil {
+			return 0, err
+		}
+		s.logf("info", "servo %d: 0° moved by %.1f° (saved on the servo) so the range doesn't cross it; the console angles are unchanged", m, d)
+	}
+	s.broadcastState()
+	return appliedTo, nil
+}
+
+// refreshAngleLimits rewrites a single-turn servo's angle limits from its
+// motion range after its zero moved (the limits are in readings). If the
+// range now crosses the servo's 0, the whole turn is allowed instead and the
+// console keeps enforcing the range.
+func (s *server) refreshAngleLimits(sv *st3215.Servo, id uint8) error {
+	rg := s.cfg.get(id).Range
+	if multi, err := multiTurn(sv); err != nil || multi || len(rg) != 2 {
+		return err
+	}
+	zero, err := sv.Zero()
+	if err != nil {
+		return err
+	}
+	r := st3215.Range{Lo: rg[0], Hi: rg[1]}
+	lo := wrapSteps(r.Lo - zero)
+	if lo+r.Span() > st3215.StepsPerRev-1 {
+		s.logf("info", "servo %d: its range now crosses its 0, so its angle limits allow the whole turn; this console still enforces the range", id)
+		return sv.SetMultiTurn(false)
+	}
+	return sv.SetAngleLimits(lo, lo+r.Span())
+}
+
 // applyAngleLimits writes the servo's motion range as its angle limits
 // (single-turn). Limits are a plain min < max range of readings, so an arc
 // that crosses the servo's own 0 is first moved clear of it by shifting the
 // servo's zero; the virtual 0° and dial orientation shift along, so the
-// console shows the same angles.
-func (s *server) applyAngleLimits(sv *st3215.Servo, id uint8) error {
+// console shows the same angles. Group members share an axis, so all of
+// them get the same shift (their readings must keep agreeing).
+func (s *server) applyAngleLimits(bus *st3215.Bus, id uint8) error {
+	sv := bus.Servo(id)
 	rg := s.cfg.get(id).Range
 	if len(rg) != 2 {
 		return nil
@@ -1137,25 +1204,11 @@ func (s *server) applyAngleLimits(sv *st3215.Servo, id uint8) error {
 				shift, best = st3215.CircularDiff(q, 0), c
 			}
 		}
-		if err := sv.SetZeroAt(shift); err != nil {
-			return err
-		}
-		z1, err := sv.Zero()
+		applied, err := s.shiftZero(bus, id, shift)
 		if err != nil {
 			return err
 		}
-		shift = st3215.CircularDiff(z1, zero) // as applied (an offset of -2048 can't be stored: one step off)
-		d := float64(shift) * st3215.DegreesPerStep
-		wrap := func(d float64) float64 { return math.Mod(math.Mod(d, 360)+360, 360) }
-		round := func(v float64) float64 { return math.Round(wrap(v)*10) / 10 }
-		if err := s.cfg.update(id, func(c *servoConfig) {
-			c.Zero, c.DialUp = round(c.Zero-d), round(c.DialUp-d)
-		}); err != nil {
-			return err
-		}
-		s.broadcastState()
-		lo = wrapSteps(lo - shift)
-		s.logf("info", "servo %d: 0° moved by %.1f° (saved on the servo) so the range doesn't cross it; the console angles are unchanged", id, d)
+		lo = wrapSteps(lo - applied)
 	}
 	if err := sv.SetAngleLimits(lo, lo+span); err != nil {
 		return err
@@ -1308,7 +1361,7 @@ func (s *server) servoCommand(c *client, bus *st3215.Bus, req request) error {
 		s.broadcastState()
 		return nil
 	case "multiturn":
-		return s.setMultiTurn(sv, req.ID, req.On)
+		return s.setMultiTurn(bus, req.ID, req.On)
 	case "limits":
 		return s.setLimits(bus, sv, req)
 	case "limitsClear":
