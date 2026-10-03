@@ -871,6 +871,10 @@ function setServos(ids) {
   state.ids = ids;
   renderList();
   if (state.selGroup) return;
+  // A new set of servos (connect, scan): show the first group whose members
+  // were all found, else the first servo.
+  const g = (state.groups || []).find((g) => g.members.every((id) => ids.includes(id)));
+  if (g) return selectGroup(g.key);
   if (!ids.includes(state.selected)) state.selected = ids.length ? ids[0] : null;
   $("main").hidden = state.selected === null;
   if (state.selected !== null) selectServo(state.selected);
@@ -1718,6 +1722,7 @@ function onState(m) {
   if (prev.scanning && !m.scanning && m.ids.length) state.wantScan = false; // scan finished with results
   if (!m.connected) state.wantScan = false;
   if (!m.scanning) $("scanBar").style.width = m.scanned ? "100%" : "0";
+  state.groups = m.groups || []; // before setServos: it may open a group
   setServos(m.ids);
   state.mirrored = new Set(m.mirrored || []);
   state.signed = new Set(m.signed || []);
