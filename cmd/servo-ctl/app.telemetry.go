@@ -1,4 +1,4 @@
-package app
+package main
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 // pollLoop reads the found servos' telemetry every a.poll, checks the groups'
 // health and streams both to every window.
-func (a *App) pollLoop(ctx context.Context) {
+func (a *app) pollLoop(ctx context.Context) {
 	t := time.NewTicker(a.poll)
 	defer t.Stop()
 	for {

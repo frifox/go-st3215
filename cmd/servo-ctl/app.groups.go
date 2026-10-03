@@ -1,4 +1,4 @@
-package app
+package main
 
 import (
 	"fmt"
@@ -27,7 +27,7 @@ func groupInfos(groups map[string]internal.GroupConfig) []internal.GroupInfo {
 }
 
 // groupSave creates or updates a group from the browser.
-func (a *App) groupSave(req internal.Request) error {
+func (a *app) groupSave(req internal.Request) error {
 	name, err := internal.ValidName(req.Name)
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func (a *App) groupSave(req internal.Request) error {
 }
 
 // groupDelete removes a group from config.toml; its servos keep their settings.
-func (a *App) groupDelete(key string) error {
+func (a *app) groupDelete(key string) error {
 	g, _ := a.cfg.Group(key)
 	if err := a.cfg.DeleteGroup(key); err != nil {
 		return err
