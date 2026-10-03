@@ -17,7 +17,7 @@ import (
 )
 
 // servoConfig holds the per-servo settings kept in config.toml. They live in
-// the demo, not on the servo (which has no room for user data).
+// servo-ctl, not on the servo (which has no room for user data).
 type servoConfig struct {
 	Name     string  `toml:"Name,omitempty"`
 	Mirrored bool    `toml:"Mirrored,omitempty"`
@@ -81,7 +81,7 @@ type config struct {
 	groups map[string]groupConfig
 }
 
-const configHeader = `# go-st3215 demo: per-servo settings keyed by servo ID, and servo groups.
+const configHeader = `# servo-ctl: per-servo settings keyed by servo ID, and servo groups.
 # Edited by the web UI; changes made here are read on startup.
 `
 
@@ -320,6 +320,9 @@ func (c *config) saveLocked() error {
 		}
 	}
 
+	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(c.path), ".config-*.toml")
 	if err != nil {
 		return err

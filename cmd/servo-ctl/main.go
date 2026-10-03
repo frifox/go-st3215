@@ -1,14 +1,17 @@
-// Command example is a demo for the st3215 package: a WebSocket server that
-// streams servo telemetry and accepts control commands, plus a web page
-// (web/index.html, embedded) to monitor and drive the servos.
+// Command servo-ctl is a web console for ST3215 servos built on the st3215
+// package: a WebSocket server that streams servo telemetry and accepts
+// control commands, plus a web page (web/index.html, embedded) to set up,
+// monitor and drive the servos.
 //
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
 //
-//	go run .                               # choose the port in the browser
-//	go run . -port /dev/ttyACM0            # connect on startup (Linux)
-//	go run . -port /dev/cu.usbmodem1101    # connect on startup (macOS)
-//	go run . -sim 1,2,3                    # connect to simulated servos on startup
+//	go install github.com/frifox/go-st3215/cmd/servo-ctl@latest
+//
+//	servo-ctl                               # choose the port in the browser
+//	servo-ctl -port /dev/ttyACM0            # connect on startup (Linux)
+//	servo-ctl -port /dev/cu.usbmodem1101    # connect on startup (macOS)
+//	servo-ctl -sim 1,2,3                    # connect to simulated servos on startup
 //
 // Then open http://localhost:8080.
 package main
@@ -25,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -44,6 +48,16 @@ var indexHTML []byte
 // simPortName is the pseudo port that selects the simulated driver board.
 const simPortName = "sim"
 
+// defaultConfigPath is servo-ctl/config.toml in the user's config directory
+// (~/.config on Linux, ~/Library/Application Support on macOS).
+func defaultConfigPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "config.toml"
+	}
+	return filepath.Join(dir, "servo-ctl", "config.toml")
+}
+
 func main() {
 	port := flag.String("port", os.Getenv("ST3215_PORT"), "serial device to connect to on startup (optional)")
 	baud := flag.Int("baud", st3215.DefaultBaudRate, "bus baud rate used with -port")
@@ -51,7 +65,7 @@ func main() {
 	sim := flag.String("sim", "", "connect to simulated servos with these IDs on startup, e.g. 1,2,3")
 	poll := flag.Duration("poll", 50*time.Millisecond, "telemetry polling interval")
 	noSync := flag.Bool("nosync", false, "poll servos one by one instead of SYNC READ")
-	cfgPath := flag.String("config", "config.toml", "per-servo settings file (names, mirrored), created on first change")
+	cfgPath := flag.String("config", defaultConfigPath(), "settings file (servo names, mirroring, zero, ranges, groups), created on first change")
 	flag.Parse()
 
 	cfg, warnings, err := loadConfig(*cfgPath)
@@ -597,7 +611,7 @@ type regValue struct {
 // WebSocket
 
 var upgrader = websocket.Upgrader{
-	// The demo is meant for localhost; accept any origin.
+	// servo-ctl is meant for localhost; accept any origin.
 	CheckOrigin: func(*http.Request) bool { return true },
 }
 

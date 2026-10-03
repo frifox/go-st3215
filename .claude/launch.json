@@ -6,7 +6,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd example && go run . -addr localhost:8080"
+        "go run ./cmd/servo-ctl -addr localhost:8080"
       ],
       "port": 8080
     }

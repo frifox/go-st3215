@@ -9,7 +9,7 @@ import (
 	st3215 "github.com/frifox/go-st3215"
 )
 
-// simPort implements st3215.Port with simulated servos so the demo can run
+// simPort implements st3215.Port with simulated servos so servo-ctl can run
 // without hardware. It speaks the real wire protocol and models motion
 // roughly (constant speed, no inertia).
 type simPort struct {

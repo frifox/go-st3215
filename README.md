@@ -2,11 +2,11 @@
 
 Go package for controlling and monitoring **Waveshare ST3215** serial bus servos
 (Feetech STS3215 protocol) through the **Waveshare Bus Servo Adapter (A)**.
-Works on Linux and macOS. The only dependency is `go.bug.st/serial`.
+Works on Linux and macOS. The library's only dependency is `go.bug.st/serial`.
 
-![Web console demo controlling two ST3215 servos](docs/screenshot.jpg)
+![servo-ctl web console controlling ST3215 servos](docs/screenshot.jpg)
 
-*The [web console demo](#demo-web-console) driving two ST3215 servos.*
+*[servo-ctl](#servo-ctl-web-console), the web console, driving ST3215 servos.*
 
 ```go
 import st3215 "github.com/frifox/go-st3215"
@@ -120,9 +120,9 @@ if err == nil {
 Tune with the real load mounted, near the middle of the range you'll use, after mirroring and center
 calibration are set up. Grouped servos are always tuned together.
 
-## Demo: web console
+## servo-ctl: web console
 
-[`example/`](example) is a WebSocket server plus a web page to set up, monitor and drive the servos.
+[`cmd/servo-ctl`](cmd/servo-ctl) is a WebSocket server plus a web page to set up, monitor and drive the servos.
 The page walks through three steps:
 
 1. **Driver board**: lists serial ports with their USB details and marks likely adapters
@@ -135,18 +135,22 @@ The page walks through three steps:
    editable view of the full memory table.
 
 ```bash
-cd example
-go run .                               # pick the board in the browser
-go run . -port /dev/ttyACM0            # connect + scan on startup (Linux)
-go run . -port /dev/cu.usbmodem1101    # connect + scan on startup (macOS)
-go run . -sim 1,2,3                    # simulated servos, no hardware needed
+go install github.com/frifox/go-st3215/cmd/servo-ctl@latest
+
+servo-ctl                               # pick the board in the browser
+servo-ctl -port /dev/ttyACM0            # connect + scan on startup (Linux)
+servo-ctl -port /dev/cu.usbmodem1101    # connect + scan on startup (macOS)
+servo-ctl -sim 1,2,3                    # simulated servos, no hardware needed
 ```
+
+From a checkout, `go run ./cmd/servo-ctl` does the same.
 
 Then open http://localhost:8080. Other flags: `-baud`, `-addr`, `-poll` (telemetry interval,
 default 50 ms), `-nosync` (poll servos one by one if SYNC READ misbehaves) and `-config`.
 
-Per-servo settings that can't be stored on the servo are kept in
-[`example/config.toml`](example/config.toml), keyed by servo ID. A motion range set in Setup is kept there
+Per-servo settings that can't be stored on the servo are kept in `config.toml`, keyed by servo ID:
+`~/.config/servo-ctl/config.toml` on Linux, `~/Library/Application Support/servo-ctl/config.toml` on
+macOS (or `-config path`). A motion range set in Setup is kept there
 too (`Range = [lo, hi]`, encoder-scale steps) and enforced in multi-turn mode as well. The web UI writes it when you
 edit a servo (pencil next to its name: name, color, mirrored, ±180° angles, virtual 0°, dial orientation) or change an ID. Edits made by hand are read on startup:
 
@@ -177,8 +181,9 @@ OnFight = "torque-off"  # default "warn"
 Several browser windows can be open at once: connection, scan, telemetry, names, mirrored state and
 servo settings stay in sync across them (each window still picks its own selected servo).
 
-The demo is a separate Go module (`example/go.mod`), so the library itself only depends on
-`go.bug.st/serial`. Listing USB port details uses cgo on macOS (the Xcode command line tools).
+servo-ctl adds `github.com/gorilla/websocket` and `github.com/BurntSushi/toml` to the module; the
+library packages don't import them. Listing USB port details uses cgo on macOS (the Xcode command
+line tools).
 
 ## Platform notes
 
@@ -192,7 +197,7 @@ The demo is a separate Go module (`example/go.mod`), so the library itself only 
 - **macOS**: use the `/dev/cu.*` device (not `/dev/tty.*`), e.g. `/dev/cu.usbmodem…` or
   `/dev/cu.wchusbserial…`. Recent macOS includes the CH34x driver.
 - Each new servo ships with ID 1. Connect them **one at a time** and give each a unique
-  ID (`Servo.SetID`, or the Setup panel of the demo) before chaining them.
+  ID (`Servo.SetID`, or the Setup panel of servo-ctl) before chaining them.
 
 ## Multi-turn mode: positions wrap
 
