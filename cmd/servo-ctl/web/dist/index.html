@@ -265,7 +265,7 @@ td .num { width: 90px; padding: 3px 6px; }
 <body>
 <header>
   <h1>ST3215 Console</h1>
-  <span class="pill"><span class="dot" id="connDot"></span><span id="connText">backend…</span></span>
+  <span class="pill"><span class="dot" id="connDot"></span><span id="connText">ws connecting…</span></span>
   <span class="pill" id="boardPill" hidden title="Driver board"><span class="dot ok"></span><span id="boardName"></span></span>
   <span class="pill" id="rate" hidden>– Hz</span>
   <span class="spacer"></span>
@@ -759,7 +759,7 @@ function connect() {
 
 function setConn(ok) {
   $("connDot").className = "dot " + (ok ? "ok" : "bad");
-  $("connText").textContent = ok ? "backend ok" : "backend off";
+  $("connText").textContent = ok ? "ws connected" : "ws disconnected";
 }
 
 function send(type, payload = {}) {
