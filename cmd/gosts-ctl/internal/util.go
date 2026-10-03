@@ -2,7 +2,7 @@ package internal
 
 import "github.com/frifox/gosts"
 
-// Notifier is how the servo-ctl packages report to the browser windows.
+// Notifier is how the gosts-ctl packages report to the browser windows.
 type Notifier interface {
 	// Logf logs a message and shows it in every window's log ("info" or "error").
 	Logf(level, format string, args ...any)

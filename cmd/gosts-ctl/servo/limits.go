@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
 // Motion range: limits kept in config.toml, enforced by the library and,

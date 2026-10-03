@@ -1,4 +1,4 @@
-// Command servo-ctl is a web console for ST3215 servos built on the gosts
+// Command gosts-ctl is a web console for ST3215 servos built on the gosts
 // package (Go ST Servo): a WebSocket server that streams servo telemetry and
 // accepts control commands, plus a web page to set up, monitor and drive the
 // servos.
@@ -11,12 +11,12 @@
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
 //
-//	go install github.com/frifox/gosts/cmd/servo-ctl@latest
+//	go install github.com/frifox/gosts/cmd/gosts-ctl@latest
 //
-//	servo-ctl                               # choose the port in the browser
-//	servo-ctl -port /dev/ttyACM0            # connect on startup (Linux)
-//	servo-ctl -port /dev/cu.usbmodem1101    # connect on startup (macOS)
-//	servo-ctl -sim 1,2,3                    # connect to simulated servos on startup
+//	gosts-ctl                               # choose the port in the browser
+//	gosts-ctl -port /dev/ttyACM0            # connect on startup (Linux)
+//	gosts-ctl -port /dev/cu.usbmodem1101    # connect on startup (macOS)
+//	gosts-ctl -sim 1,2,3                    # connect to simulated servos on startup
 //
 // Then open http://localhost:8080.
 package main
@@ -34,18 +34,18 @@ import (
 	"time"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/board"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/board"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
-// defaultConfigPath is servo-ctl/config.toml in the user's config directory
+// defaultConfigPath is gosts-ctl/config.toml in the user's config directory
 // (~/.config on Linux, ~/Library/Application Support on macOS).
 func defaultConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "config.toml"
 	}
-	return filepath.Join(dir, "servo-ctl", "config.toml")
+	return filepath.Join(dir, "gosts-ctl", "config.toml")
 }
 
 func main() {

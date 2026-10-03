@@ -1,4 +1,4 @@
-// Package servosim simulates a driver board with ST3215 servos, so servo-ctl
+// Package servosim simulates a driver board with ST3215 servos, so gosts-ctl
 // can run without hardware.
 package servosim
 

@@ -1,6 +1,6 @@
-// Package board is the driver board side of servo-ctl: listing serial ports,
+// Package board is the driver board side of gosts-ctl: listing serial ports,
 // connecting to a board (or the simulator), scanning it for servos, and
-// giving the rest of servo-ctl access to the bus.
+// giving the rest of gosts-ctl access to the bus.
 package board
 
 import (
@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
-	servosim "github.com/frifox/gosts/cmd/servo-ctl/servo-sim"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
+	servosim "github.com/frifox/gosts/cmd/gosts-ctl/servo-sim"
 	"go.bug.st/serial/enumerator"
 )
 

@@ -7,9 +7,9 @@ import (
 	"slices"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/board"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
-	"github.com/frifox/gosts/cmd/servo-ctl/web"
+	"github.com/frifox/gosts/cmd/gosts-ctl/board"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/web"
 )
 
 // Requests from the browser windows.

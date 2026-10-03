@@ -50,7 +50,7 @@ func (c *Controller) FactoryReset(bus *gosts.Bus, id uint8) (uint8, error) {
 	return newID, nil
 }
 
-// Renumber moves what servo-ctl keeps about a servo (mirroring and motion
+// Renumber moves what gosts-ctl keeps about a servo (mirroring and motion
 // range on the bus, config.toml entry and group membership, tried values)
 // from ID from to ID to, after the servo changed its ID by itself (a factory
 // reset).
@@ -69,7 +69,7 @@ func (c *Controller) Renumber(bus *gosts.Bus, from, to uint8) {
 }
 
 // SetID gives the servo a new ID (saved on the servo) and moves what
-// servo-ctl keeps about it along.
+// gosts-ctl keeps about it along.
 func (c *Controller) SetID(bus *gosts.Bus, id, newID uint8) error {
 	if err := bus.Servo(id).SetID(newID); err != nil { // the bus moves mirroring and range itself
 		return err

@@ -1,4 +1,4 @@
-// Package servo runs servo-ctl's commands on the servo motors: single servos
+// Package servo runs gosts-ctl's commands on the servo motors: single servos
 // and groups, angle moves, the motion range and zero, tuning values tried
 // until power-off, factory reset, and fight protection for groups.
 package servo
@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
 // Controller runs servo commands. It keeps what isn't stored on the servos:

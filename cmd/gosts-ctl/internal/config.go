@@ -1,4 +1,4 @@
-// Package internal holds what the servo-ctl packages share: the settings
+// Package internal holds what the gosts-ctl packages share: the settings
 // file (config.toml), the messages exchanged with the browser, the Notifier
 // they report through, and small helpers.
 package internal
@@ -20,7 +20,7 @@ import (
 )
 
 // ServoConfig holds the per-servo settings kept in config.toml. They live in
-// servo-ctl, not on the servo (which has no room for user data).
+// gosts-ctl, not on the servo (which has no room for user data).
 type ServoConfig struct {
 	Name     string  `toml:"Name,omitempty"`
 	Mirrored bool    `toml:"Mirrored,omitempty"`
@@ -86,7 +86,7 @@ type Config struct {
 	groups map[string]GroupConfig
 }
 
-const configHeader = `# servo-ctl: per-servo settings keyed by servo ID, and servo groups.
+const configHeader = `# gosts-ctl: per-servo settings keyed by servo ID, and servo groups.
 # Edited by the web UI; changes made here are read on startup.
 `
 

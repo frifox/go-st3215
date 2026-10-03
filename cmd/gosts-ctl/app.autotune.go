@@ -9,7 +9,7 @@ import (
 
 	"github.com/frifox/gosts"
 	"github.com/frifox/gosts/autotune"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
 // One auto-tune run at a time; progress is broadcast to every window.

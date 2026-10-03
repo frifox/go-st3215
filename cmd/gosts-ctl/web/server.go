@@ -1,4 +1,4 @@
-// Package web is servo-ctl's HTTP side: it serves the web page and keeps
+// Package web is gosts-ctl's HTTP side: it serves the web page and keeps
 // one WebSocket per browser window, passing requests to a Handler and
 // broadcasting messages to every window. The page is in dist.
 package web
@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 	"github.com/gorilla/websocket"
 )
 
@@ -100,7 +100,7 @@ func (s *Server) BroadcastExcept(skip *Client, msg any) {
 }
 
 var upgrader = websocket.Upgrader{
-	// servo-ctl is meant for localhost; accept any origin.
+	// gosts-ctl is meant for localhost; accept any origin.
 	CheckOrigin: func(*http.Request) bool { return true },
 }
 

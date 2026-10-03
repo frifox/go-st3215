@@ -1,7 +1,7 @@
 package servo
 
 import (
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
 // Tried-but-not-saved tuning values

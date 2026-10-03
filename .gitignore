@@ -2,4 +2,4 @@
 /doc-*/
 .claude/settings.local.json
 .idea/
-/cmd/servo-ctl/servo-ctl
+/cmd/gosts-ctl/gosts-ctl

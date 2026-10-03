@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
 )
 
 // pollLoop reads the found servos' telemetry every a.poll, checks the groups'

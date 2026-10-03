@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
-	servosim "github.com/frifox/gosts/cmd/servo-ctl/servo-sim"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
+	servosim "github.com/frifox/gosts/cmd/gosts-ctl/servo-sim"
 )
 
 type nopNotifier struct{}

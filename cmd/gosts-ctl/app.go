@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/frifox/gosts"
-	"github.com/frifox/gosts/cmd/servo-ctl/board"
-	"github.com/frifox/gosts/cmd/servo-ctl/internal"
-	"github.com/frifox/gosts/cmd/servo-ctl/servo"
-	"github.com/frifox/gosts/cmd/servo-ctl/web"
+	"github.com/frifox/gosts/cmd/gosts-ctl/board"
+	"github.com/frifox/gosts/cmd/gosts-ctl/internal"
+	"github.com/frifox/gosts/cmd/gosts-ctl/servo"
+	"github.com/frifox/gosts/cmd/gosts-ctl/web"
 )
 
-// app ties servo-ctl together: it builds the web server, the driver board and
+// app ties gosts-ctl together: it builds the web server, the driver board and
 // the servo controller, runs the browser's requests on them (as the web
 // package's Handler), polls telemetry, keeps every window in sync, and is the
 // Notifier the other packages report through.
