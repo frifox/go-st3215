@@ -9,13 +9,13 @@ import (
 	st3215 "github.com/frifox/go-st3215"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/server"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
 )
 
 // Requests from the browser windows.
 
 // Connected sends a new window the current state.
-func (a *app) Connected(c *server.Client) {
+func (a *app) Connected(c *web.Client) {
 	c.Push(a.stateMsg())
 	if m := a.autotuneState(); m != nil {
 		c.Push(*m)
@@ -25,7 +25,7 @@ func (a *app) Connected(c *server.Client) {
 // Handle runs one request. Scans and auto-tune runs are long, so they run in
 // the background (and can be cancelled); the window's other requests run in
 // order, so rapid moves can't overtake each other.
-func (a *app) Handle(c *server.Client, req internal.Request) {
+func (a *app) Handle(c *web.Client, req internal.Request) {
 	if req.Type == "scan" || req.Type == "autotune" {
 		go a.handle(c, req)
 		return
@@ -33,7 +33,7 @@ func (a *app) Handle(c *server.Client, req internal.Request) {
 	a.handle(c, req)
 }
 
-func (a *app) handle(c *server.Client, req internal.Request) {
+func (a *app) handle(c *web.Client, req internal.Request) {
 	var goal *int
 	var err error
 	switch req.Type {
@@ -56,7 +56,7 @@ func (a *app) handle(c *server.Client, req internal.Request) {
 	}
 }
 
-func (a *app) exec(c *server.Client, req internal.Request) error {
+func (a *app) exec(c *web.Client, req internal.Request) error {
 	switch req.Type {
 	case "ports":
 		ports, err := board.ListPorts()
@@ -133,7 +133,7 @@ func (a *app) targets(req internal.Request) []uint8 {
 // servoCommand runs a command on one servo. ID changes and settings reads are
 // handled here, as they involve the board's servo list or the requesting
 // window; everything else goes to the servo controller.
-func (a *app) servoCommand(c *server.Client, bus *st3215.Bus, req internal.Request) error {
+func (a *app) servoCommand(c *web.Client, bus *st3215.Bus, req internal.Request) error {
 	if !slices.Contains(a.board.IDs(), req.ID) {
 		return fmt.Errorf("servo %d was not found by the last scan", req.ID)
 	}

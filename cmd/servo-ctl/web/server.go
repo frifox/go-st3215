@@ -1,11 +1,14 @@
-// Package server is servo-ctl's HTTP side: it serves the web page and keeps
+// Package web is servo-ctl's HTTP side: it serves the web page and keeps
 // one WebSocket per browser window, passing requests to a Handler and
-// broadcasting messages to every window.
-package server
+// broadcasting messages to every window. The page is in dist.
+package web
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -15,7 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//go:embed web/index.html
+//go:embed dist/index.html
 var indexHTML []byte
 
 // Handler runs the requests of the browser windows.
@@ -46,6 +49,20 @@ func (s *Server) Routes() http.Handler {
 	})
 	mux.HandleFunc("/ws", s.handleWS)
 	return mux
+}
+
+// ListenAndServe serves on addr until ctx is done.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	hs := &http.Server{Addr: addr, Handler: s.Routes()}
+	go func() {
+		<-ctx.Done()
+		hs.Close()
+	}()
+	log.Printf("open http://%s", addr)
+	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // Client is one browser window.

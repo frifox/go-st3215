@@ -2,10 +2,10 @@
 // package: a WebSocket server that streams servo telemetry and accepts
 // control commands, plus a web page to set up, monitor and drive the servos.
 //
-// Packages: server (HTTP and WebSocket), board (driver board: ports,
-// connection, scanning), servo (commands on the servo motors), servo-sim (a
-// simulated board), internal (settings file, messages, shared helpers); this
-// package ties them together.
+// Packages: web (HTTP and WebSocket, the page in web/dist), board (driver
+// board: ports, connection, scanning), servo (commands on the servo motors),
+// servo-sim (a simulated board), internal (settings file, messages, shared
+// helpers); this package ties them together.
 //
 // The page walks through three steps: pick the driver board (serial port),
 // scan it for servos, then monitor/control the servos that were found.
@@ -23,11 +23,9 @@ package main
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -92,13 +90,7 @@ func main() {
 	}()
 	go a.pollLoop(ctx)
 
-	hs := &http.Server{Addr: *addr, Handler: a.srv.Routes()}
-	go func() {
-		<-ctx.Done()
-		hs.Close()
-	}()
-	log.Printf("open http://%s", *addr)
-	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := a.srv.ListenAndServe(ctx, *addr); err != nil {
 		log.Fatal(err)
 	}
 }

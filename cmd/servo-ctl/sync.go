@@ -8,7 +8,7 @@ import (
 
 	st3215 "github.com/frifox/go-st3215"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/server"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
 )
 
 // Keeping several browser windows in sync
@@ -67,7 +67,7 @@ var changesServo = map[string]bool{
 	"mirror": true, "setid": true, "servoEdit": true, "zeroAt": true, "angle": true, "jog": true, "step": true, "align": true, "copyTuning": true,
 }
 
-func (a *app) afterChange(c *server.Client, req internal.Request) {
+func (a *app) afterChange(c *web.Client, req internal.Request) {
 	if !changesServo[req.Type] {
 		return
 	}

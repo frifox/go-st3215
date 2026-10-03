@@ -181,7 +181,7 @@ OnFight = "torque-off"  # default "warn"
 Several browser windows can be open at once: connection, scan, telemetry, names, mirrored state and
 servo settings stay in sync across them (each window still picks its own selected servo).
 
-Code layout: [`server`](cmd/servo-ctl/server) (HTTP + WebSocket, the embedded page),
+Code layout: [`web`](cmd/servo-ctl/web) (HTTP + WebSocket, the page in `web/dist`),
 [`board`](cmd/servo-ctl/board) (serial ports, connection, scanning), [`servo`](cmd/servo-ctl/servo)
 (commands on the servo motors and groups), [`servo-sim`](cmd/servo-ctl/servo-sim) (simulated board),
 [`internal`](cmd/servo-ctl/internal) (settings file, messages, shared helpers); `cmd/servo-ctl` itself ties

@@ -10,15 +10,15 @@ import (
 
 	"github.com/frifox/go-st3215/cmd/servo-ctl/board"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/internal"
-	"github.com/frifox/go-st3215/cmd/servo-ctl/server"
 	"github.com/frifox/go-st3215/cmd/servo-ctl/servo"
+	"github.com/frifox/go-st3215/cmd/servo-ctl/web"
 )
 
 // app ties servo-ctl together: it handles the browser's requests (as the
 // server's Handler) and is the Notifier the other packages report through.
 type app struct {
 	cfg    *internal.Config
-	srv    *server.Server
+	srv    *web.Server
 	board  *board.Board
 	ctl    *servo.Controller
 	poll   time.Duration
@@ -31,7 +31,7 @@ type app struct {
 
 func newApp(cfg *internal.Config, simIDs []uint8, poll time.Duration, noSync bool) *app {
 	a := &app{cfg: cfg, poll: poll, noSync: noSync}
-	a.srv = server.New(a)
+	a.srv = web.New(a)
 	a.board = board.New(cfg, a, simIDs)
 	a.ctl = servo.New(cfg, a)
 	return a
